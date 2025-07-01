@@ -13,7 +13,12 @@ check-code:
 	SQLX_OFFLINE=true cargo audit
 
 test-in-ci:
-	DATABASE_URL=postgres://user:password@postgres:5432/pg cargo sqlx migrate run
+	DATABASE_URL=postgres://user:password@stablesats-pg:5432/pg cargo sqlx migrate run
+	make create-tmp-env-ci && \
+	SQLX_OFFLINE=true cargo nextest run --verbose --locked
+
+test-local:
+	DATABASE_URL=postgres://user:password@localhost:5440/pg cargo sqlx migrate run
 	make create-tmp-env-ci && \
 	SQLX_OFFLINE=true cargo nextest run --verbose --locked
 

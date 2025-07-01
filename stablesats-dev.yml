@@ -1,0 +1,39 @@
+# Stablesats local development configuration
+# Based on vendor/galoy-quickstart/dev/config/stablesats.yml but adapted for local dev
+
+galoy:
+  api: "http://localhost:4455/graphql"
+  phone_number: "+0123456"
+
+exchanges:
+  okex:
+    weight: 1.0
+
+price_server:
+  enabled: true
+  server:
+    listen_port: 3325
+  fees:
+    base_fee_rate: 0.0005
+    immediate_fee_rate: 0.0005
+    delayed_fee_rate: 0.0007
+  price_cache:
+    dev_mock_price_btc_in_usd: 20000
+
+okex_price_feed:
+  enabled: false
+
+tracing:
+  host: "localhost"
+  port: 4318
+  service_name: "stablesats-dev"
+
+user_trades:
+  enabled: false
+
+hedging:
+  enabled: false
+
+db:
+  pool_size: 20
+  migrate_on_start: true

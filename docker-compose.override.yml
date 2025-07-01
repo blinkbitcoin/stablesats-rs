@@ -1,11 +1,13 @@
-version: "2"
 services:
   otel-agent:
     ports:
     - "4318:4318"
-  postgres:
+  kratos-pg:
     ports:
-    - "5432:5432"
+    - 5439:5432
+  stablesats-pg:
+    ports:
+    - "5440:5432"
   bria:
     ports:
     - "2743:2743"
@@ -19,3 +21,7 @@ services:
   fulcrum:
     ports:
       - "50001:50001"
+  stablesats:
+    # Disable the stablesats container to run local development version
+    deploy:
+      replicas: 0

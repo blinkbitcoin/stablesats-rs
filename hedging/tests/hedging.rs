@@ -61,7 +61,7 @@ fn bria_client_config() -> BriaClientConfig {
 #[file_serial]
 async fn hedging() -> anyhow::Result<()> {
     let pg_host = std::env::var("PG_HOST").unwrap_or_else(|_| "localhost".into());
-    let pg_con = format!("postgres://user:password@{}:5432/pg", pg_host);
+    let pg_con = format!("postgres://user:password@{}:5440/pg", pg_host);
     let pool = sqlx::PgPool::connect(&pg_con).await?;
     let ledger = ledger::Ledger::init(&pool).await?;
 

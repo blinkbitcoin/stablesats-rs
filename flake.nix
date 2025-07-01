@@ -40,6 +40,7 @@
           docker-compose
           ytt
           jq
+          tilt
         ]
         ++ lib.optionals pkgs.stdenv.isDarwin [
           darwin.apple_sdk.frameworks.SystemConfiguration
@@ -53,7 +54,7 @@
         PGUSER = "user";
         PGPASSWORD = "password";
         PGHOST = "127.0.0.1";
-        DATABASE_URL = "postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:5432/pg";
+        DATABASE_URL = "postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:5440/pg";
         PG_CON = "${DATABASE_URL}";
       };
     in
