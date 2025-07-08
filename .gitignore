@@ -15,3 +15,5 @@
 .env
 .direnv
 staging.yml
+
+tmp.env.ci
