@@ -1,5 +1,5 @@
 # Stablesats local development configuration
-# Based on vendor/galoy-quickstart/dev/config/stablesats.yml but adapted for local dev
+# Based on vendor/blink-quickstart/dev/config/stablesats.yml but adapted for local dev
 
 galoy:
   api: "http://localhost:4455/graphql"

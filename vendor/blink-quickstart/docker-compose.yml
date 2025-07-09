@@ -30,7 +30,7 @@ services:
     - APOLLO_ROUTER_SUPERGRAPH_PATH=/repo/dev/supergraph.graphql
     - APOLLO_ROUTER_CONFIG_PATH=/repo/dev/router.yaml
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/apollo-federation:/repo/dev
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/apollo-federation:/repo/dev
     depends_on:
     - otel-agent
   oathkeeper:
@@ -40,7 +40,7 @@ services:
     - 4456:4456
     command: serve -c /home/ory/oathkeeper.yml --sqa-opt-out
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/ory:/home/ory
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/ory:/home/ory
     depends_on:
     - kratos
     - hydra
@@ -58,7 +58,7 @@ services:
     depends_on:
     - kratos-pg
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/ory:/home/ory
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/ory:/home/ory
   kratos-pg:
     image: postgres:14.1
     ports:
@@ -74,7 +74,7 @@ services:
     - 4445:4445
     command: serve -c /home/ory/hydra.yml all --dev
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/ory:/home/ory
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/ory:/home/ory
     environment:
     - DSN=postgres://hydra:secret@hydra-pg:5432/hydra?sslmode=disable&max_conns=20&max_idle_conns=4
     restart: unless-stopped
@@ -87,7 +87,7 @@ services:
     - DSN=postgres://hydra:secret@hydra-pg:5432/hydra?sslmode=disable&max_conns=20&max_idle_conns=4
     command: migrate -c /home/ory/hydra.yml sql -e --yes
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/ory:/home/ory
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/ory:/home/ory
     restart: on-failure
     depends_on:
     - hydra-pg
@@ -98,7 +98,7 @@ services:
     - POSTGRES_PASSWORD=secret
     - POSTGRES_DB=hydra
   galoy:
-    image: us.gcr.io/galoy-org/galoy-api@sha256:9b57b3ad6b85e8ec4eed0d1497b0921094612bf8b81dc994358b35f13951f591
+    image: us.gcr.io/galoy-org/galoy-api@sha256:784fe9b88f7331ab26484ec2007b301ccf2fcb2a8c1630082fd4b4516ebc4ee5
     environment:
     - HELMREVISION=dev
     - NETWORK=regtest
@@ -157,7 +157,7 @@ services:
         aliases:
         - bats-tests
   trigger:
-    image: us.gcr.io/galoy-org/galoy-api-trigger@sha256:70cfc9b8dda6aeb226ba305b1010ba7b7ec962d1be9e91a835ffceccec7b043e
+    image: us.gcr.io/galoy-org/galoy-api-trigger@sha256:14121921cda10d31e12e94893775e5f1aac6d1e50c350f2eef45aba7201de684
     environment:
     - HELMREVISION=dev
     - NETWORK=regtest
@@ -200,7 +200,7 @@ services:
     depends_on:
     - galoy
   notifications:
-    image: us.gcr.io/galoy-org/galoy-notifications@sha256:20c59c627a50879f92a62077ea3b85bfb9643d6d72c96a8ef5eb23763fc65401
+    image: us.gcr.io/galoy-org/galoy-notifications@sha256:da8253b3852782d228d3439185121ffc278bd1a9c0d2e6458ca8fc9db9c75b06
     environment:
     - PG_CON=postgres://user:password@notifications-pg:5432/pg
     - PG_READ_CON=postgres://user:password@notifications-pg:5432/pg
@@ -209,8 +209,8 @@ services:
     ports:
     - 6685:6685
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/notifications/notifications.yml:/config/notifications/notifications.yml
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/notifications/fake_service_account.json:/app/notifications/config/notifications/fake_service_account.json
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/notifications/notifications.yml:/config/notifications/notifications.yml
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/notifications/fake_service_account.json:/app/notifications/config/notifications/fake_service_account.json
     depends_on:
     - notifications-pg
   notifications-pg:
@@ -242,7 +242,7 @@ services:
     environment:
     - MONGO_INITDB_DATABASE=galoy
   mongodb-migrate:
-    image: us.gcr.io/galoy-org/galoy-api-migrate@sha256:d4166e76af9b4c156c53b1a906159c32a48ddd740cb06685b0c16e2627928e09
+    image: us.gcr.io/galoy-org/galoy-api-migrate@sha256:625aa289eb74d2a5aa26e6f34af7a104ab7021131b9c208828144c31f22ee650
     depends_on:
     - mongodb
     environment:
@@ -253,7 +253,7 @@ services:
     - 50051:50051
     - 9464:9464
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/price.yml:/var/yaml/custom.yaml
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/price.yml:/var/yaml/custom.yaml
   price-history:
     image: us.gcr.io/galoy-org/price-history:edge
     ports:
@@ -303,12 +303,12 @@ services:
     ports:
     - 18443:18443
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/bitcoind/bitcoin.conf:/data/.bitcoin/bitcoin.conf
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/bitcoind/bitcoin.conf:/data/.bitcoin/bitcoin.conf
   bitcoind-signer:
     image: lncm/bitcoind:v27.0
     ports: []
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/bitcoind/bitcoin.conf:/data/.bitcoin/bitcoin.conf
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/bitcoind/bitcoin.conf:/data/.bitcoin/bitcoin.conf
     depends_on:
     - bitcoind
     entrypoint:
@@ -322,12 +322,12 @@ services:
     ports:
     - 10009:10009
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/lnd.conf:/root/.lnd/lnd.conf
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/tls.key:/root/.lnd/tls.key
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/tls.cert:/root/.lnd/tls.cert
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/regtest/lnd1.wallet.db:/root/.lnd/wallet.db
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/regtest/lnd1.macaroons.db:/root/.lnd/macaroons.db
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/regtest/lnd1.admin.macaroon:/root/.lnd/admin.macaroon
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/lnd.conf:/root/.lnd/lnd.conf
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/tls.key:/root/.lnd/tls.key
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/tls.cert:/root/.lnd/tls.cert
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/regtest/lnd1.wallet.db:/root/.lnd/wallet.db
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/regtest/lnd1.macaroons.db:/root/.lnd/macaroons.db
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/regtest/lnd1.admin.macaroon:/root/.lnd/admin.macaroon
     depends_on:
     - bitcoind
     entrypoint:
@@ -345,12 +345,12 @@ services:
     ports:
     - 10012:10009
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/lnd.conf:/root/.lnd/lnd.conf
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/tls.key:/root/.lnd/tls.key
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/tls.cert:/root/.lnd/tls.cert
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/regtest/lnd-outside-1.wallet.db:/root/.lnd/wallet.db
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/regtest/lnd-outside-1.macaroons.db:/root/.lnd/macaroons.db
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/lnd/regtest/lnd-outside-1.admin.macaroon:/root/.lnd/admin.macaroon
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/lnd.conf:/root/.lnd/lnd.conf
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/tls.key:/root/.lnd/tls.key
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/tls.cert:/root/.lnd/tls.cert
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/regtest/lnd-outside-1.wallet.db:/root/.lnd/wallet.db
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/regtest/lnd-outside-1.macaroons.db:/root/.lnd/macaroons.db
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/lnd/regtest/lnd-outside-1.admin.macaroon:/root/.lnd/admin.macaroon
     entrypoint:
     - /bin/sh
     - -c
@@ -382,7 +382,7 @@ services:
     - -d
     - m/84h/0h/0h
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/bria.yml:/bria.yml
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/bria.yml:/bria.yml
     depends_on:
       bitcoind-signer:
         condition: service_started
@@ -412,9 +412,9 @@ services:
     depends_on:
     - bitcoind
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/fulcrum/fulcrum.conf:/fulcrum.conf
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/fulcrum/tls.key:/tls.key
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/fulcrum/tls.cert:/tls.cert
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/fulcrum/fulcrum.conf:/fulcrum.conf
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/fulcrum/tls.key:/tls.key
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/fulcrum/tls.cert:/tls.cert
     environment:
     - DATA_DIR=/db
     - SSL_CERTFILE=/tls.cert
@@ -434,7 +434,7 @@ services:
     - otel-agent
     restart: on-failure:10
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/:/repo
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/:/repo
   otel-agent:
     ports:
     - 4318:4318
@@ -446,7 +446,7 @@ services:
     - HONEYCOMB_DATASET=${HONEYCOMB_DATASET}
     - HONEYCOMB_API_KEY=${HONEYCOMB_API_KEY}
     volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/config/otel-agent-config.yaml:/etc/otel-agent-config.yaml
+    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/otel-agent-config.yaml:/etc/otel-agent-config.yaml
   svix:
     image: svix/svix-server:v1.38
     environment:

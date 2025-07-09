@@ -2,10 +2,10 @@ apiVersion: vendir.k14s.io/v1alpha1
 directories:
 - contents:
   - git:
-      commitTitle: 'chore(release): [ci skip] bump quickstart image to sha256@9b57b3ad6b85e8ec4eed0d1497b0921094612bf8b81dc994358b35f13951f591'
-      sha: 29ea9fb0fe516995818a90b1c63d4a91df76a7e9
+      commitTitle: 'chore: rename default-name for quickstart syncing (#122)'
+      sha: 05062dbdd95d0c0f33fd85c0d5e0f2cb8139e1c0
       tags:
-      - 0.21.41
-    path: galoy-quickstart
+      - 0.21.57-3-g05062dbdd
+    path: blink-quickstart
   path: vendor
 kind: LockConfig

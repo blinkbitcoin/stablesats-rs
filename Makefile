@@ -3,7 +3,7 @@ build: ./target/debug/stablesats setup-db
 
 
 start-db:
-	docker-compose -f vendor/galoy-quickstart/docker-compose.yml -f docker-compose.yml -f docker-compose.override.yml up -d stablesats-pg
+	docker-compose -f vendor/blink-quickstart/docker-compose.yml -f docker-compose.yml -f docker-compose.override.yml up -d stablesats-pg
 	@echo "Waiting for database to be ready..."
 	@sleep 5
 
@@ -11,7 +11,7 @@ setup-db: start-db
 	cargo sqlx migrate run
 
 stop-db:
-	docker-compose -f vendor/galoy-quickstart/docker-compose.yml -f docker-compose.yml -f docker-compose.override.yml down stablesats-pg
+	docker-compose -f vendor/blink-quickstart/docker-compose.yml -f docker-compose.yml -f docker-compose.override.yml down stablesats-pg
 
 watch:
 	RUST_BACKTRACE=full cargo watch -s 'cargo test -- --nocapture'

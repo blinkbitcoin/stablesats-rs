@@ -3,7 +3,7 @@ is_ci=sys.argv[1] == "ci"
 local_resource(
   name='init-onchain',
   labels = ['dev-setup'],
-  cmd='vendor/galoy-quickstart/bin/init-onchain.sh',
+  cmd='vendor/blink-quickstart/bin/init-onchain.sh',
   resource_deps = [
     "bitcoind",
     "bria",
@@ -48,7 +48,7 @@ if is_ci:
     allow_parallel = False
 )
 
-docker_compose(['vendor/galoy-quickstart/docker-compose.yml', 'docker-compose.yml', 'docker-compose.override.yml'])
+docker_compose(['vendor/blink-quickstart/docker-compose.yml', 'docker-compose.yml', 'docker-compose.override.yml'])
 
 
 galoy_services = ["apollo-router", "galoy", "trigger", "redis", "mongodb", "mongodb-migrate", "price", "price-history", "price-history-migrate", "price-history-pg", "svix", "svix-pg", "notifications", "notifications-pg" ]

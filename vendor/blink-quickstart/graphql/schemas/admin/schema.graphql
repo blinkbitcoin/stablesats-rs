@@ -16,6 +16,7 @@ enum AccountLevel {
 enum AccountStatus {
   ACTIVE
   CLOSED
+  INVITED
   LOCKED
   NEW
   PENDING
@@ -349,6 +350,7 @@ type Mutation {
   marketingNotificationTrigger(input: MarketingNotificationTriggerInput!): SuccessPayload!
   merchantMapDelete(input: MerchantMapDeleteInput!): MerchantPayload!
   merchantMapValidate(input: MerchantMapValidateInput!): MerchantPayload!
+  userUpdateEmail(input: UserUpdateEmailInput!): AccountDetailPayload!
   userUpdatePhone(input: UserUpdatePhoneInput!): AccountDetailPayload!
 }
 
@@ -464,6 +466,7 @@ type Query {
   accountDetailsByUsername(username: Username!): AuditedAccount!
   allLevels: [AccountLevel!]!
   filteredUserCount(phoneCountryCodesFilter: [CountryCode!], userIdsFilter: [ID!]): Int!
+  inactiveMerchants: [Merchant!]!
   lightningInvoice(hash: PaymentHash!): LightningInvoice!
   lightningPayment(hash: PaymentHash!): LightningPayment!
   merchantsPendingApproval: [Merchant!]!
@@ -654,6 +657,11 @@ type UsdWallet implements Wallet {
   transactionsByPaymentHash(paymentHash: PaymentHash!): [Transaction!]!
   transactionsByPaymentRequest(paymentRequest: LnPaymentRequest!): [Transaction!]!
   walletCurrency: WalletCurrency!
+}
+
+input UserUpdateEmailInput {
+  accountId: AccountId!
+  email: EmailAddress!
 }
 
 input UserUpdatePhoneInput {
