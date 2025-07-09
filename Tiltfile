@@ -47,19 +47,19 @@ local_resource(
   ],
 )
 
-# if is_ci:
-#   local_resource(
-#     name='bats',
-#     labels = ['dev-setup'],
-#     cmd='bats test/bats',
-#     resource_deps = [
-#       "blink-kyc",
-#     ],
-#     allow_parallel = False
-#   )
+if is_ci:
+  local_resource(
+    name='integration-tests',
+    labels = ['dev-setup'],
+    cmd='make test-local',
+    resource_deps = [
+      "setup-stablesats-db","galoy"
+    ],
+    allow_parallel = False
+)
 
 docker_compose(['vendor/galoy-quickstart/docker-compose.yml', 'docker-compose.yml', 'docker-compose.override.yml'])
-galoy_services = ["apollo-router", "galoy", "trigger", "redis", "mongodb", "mongodb-migrate", "price", "price-history", "price-history-migrate", "price-history-pg", "svix", "svix-pg", "stablesats"]
+galoy_services = ["apollo-router", "galoy", "trigger", "redis", "mongodb", "mongodb-migrate", "price", "price-history", "price-history-migrate", "price-history-pg", "svix", "svix-pg" ]
 auth_services = ["oathkeeper", "kratos", "kratos-pg", "hydra", "hydra-pg", "hydra-migrate"]
 bitcoin_services = ["bitcoind", "bitcoind-signer", "lnd1", "lnd-outside-1", "bria", "bria-pg", "fulcrum"]
 stablesats_services = ["stablesats-pg"]
@@ -70,8 +70,8 @@ for service in auth_services:
     dc_resource(service, labels = ["auth"])
 for service in bitcoin_services:
     dc_resource(service, labels = ["bitcoin"])
-for service in stablesats_services:
-    dc_resource(service, labels = ["stablesats"])
+# for service in stablesats_services:
+#     dc_resource(service, labels = ["stablesats-dev"])
 # for service in blink_kyc:
 #     dc_resource(service, labels = ["blink-kyc"])
 

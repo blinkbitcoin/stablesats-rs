@@ -6,6 +6,7 @@ pub mod macros;
 pub mod payload;
 pub mod pubsub;
 pub mod sqlxmq;
+pub mod test_utils;
 pub mod time;
 pub mod tracing;
 

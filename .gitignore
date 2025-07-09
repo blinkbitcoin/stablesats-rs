@@ -17,3 +17,5 @@
 staging.yml
 
 tmp.env.ci
+
+dev/.e2e-tilt.log

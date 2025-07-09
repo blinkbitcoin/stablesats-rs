@@ -19,8 +19,13 @@ test-in-ci:
 
 test-local:
 	DATABASE_URL=postgres://user:password@localhost:5440/pg cargo sqlx migrate run
-	make create-tmp-env-ci && \
-	SQLX_OFFLINE=true cargo nextest run --verbose --locked
+	export GALOY_GRAPHQL_URI="http://localhost:4455/graphql"
+	export GALOY_PHONE_CODE="000000"
+	PG_PORT=5440 SQLX_OFFLINE=true cargo nextest run --verbose --locked
+
+tilt-up:
+	envsubst < .env > vendor/galoy-quickstart/.env.ci 
+	tilt up
 
 cli-run:
 	SQLX_OFFLINE=true cargo run --bin stablesats run

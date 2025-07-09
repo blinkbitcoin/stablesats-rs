@@ -18,7 +18,7 @@ services:
     - lnd-outside-1
     - bria
     - fulcrum
-    - stablesats
+#    - stablesats
     - svix
     - hydra
     restart: on-failure:10
@@ -147,7 +147,7 @@ services:
     - bria
     - mongodb
     - redis
-    - stablesats
+#    - stablesats
     - notifications
     - price
     - price-history
@@ -422,19 +422,19 @@ services:
     command:
     - Fulcrum
     - /fulcrum.conf
-  stablesats:
-    image: us.gcr.io/galoy-org/stablesats-rs:latest
-    ports:
-    - 3325:3325
-    command:
-    - stablesats
-    - run
-    working_dir: /repo/config
-    depends_on:
-    - otel-agent
-    restart: on-failure:10
-    volumes:
-    - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/:/repo
+  # stablesats:
+  #   image: us.gcr.io/galoy-org/stablesats-rs:latest
+  #   ports:
+  #   - 3325:3325
+  #   command:
+  #   - stablesats
+  #   - run
+  #   working_dir: /repo/config
+  #   depends_on:
+  #   - otel-agent
+  #   restart: on-failure:10
+  #   volumes:
+  #   - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/galoy-quickstart}/dev/:/repo
   otel-agent:
     ports:
     - 4318:4318

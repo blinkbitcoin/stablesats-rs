@@ -3,13 +3,12 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serial_test::{file_serial, serial};
 
+use shared::test_utils::DatabaseTestFixture;
 use stablesats_ledger::*;
 
 pub async fn init_pool() -> anyhow::Result<sqlx::PgPool> {
-    let pg_host = std::env::var("PG_HOST").unwrap_or("localhost".to_string());
-    let pg_con = format!("postgres://user:password@{pg_host}:5440/pg",);
-    let pool = sqlx::PgPool::connect(&pg_con).await?;
-    Ok(pool)
+    let db_fixture = DatabaseTestFixture::new().await?;
+    Ok(db_fixture.pool().clone())
 }
 
 #[tokio::test]
