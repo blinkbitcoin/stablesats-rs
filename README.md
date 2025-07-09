@@ -18,6 +18,48 @@ The main modules that can be run via the cli are:
 - `user_trades`: Module that identifies how much the total usd liability exists in the galoy accounting ledger. It publishes the `SynthUsdLiabilityPayload` message for downstream trading modules to pick up.
 - `hedging`: Module that executes trades on okex to match the target liability received from the pubsub.
 
+## Dependencies in stablesats-rs
+
+### 1. **blink-api (galoy-client)** - Banking backend integration  
+**Purpose**: Connects to the Galoy banking backend (which powers Blink wallet) to monitor user transactions of the dealer-account and calculates the target liability balances.
+
+**How transaction polling works**:
+- **GraphQL endpoint**: Uses the `StablesatsTransactionsList` query against Galoy's GraphQL API of the dealer account
+- **Cursor-based pagination**: Uses `before` cursor parameter to fetch transactions in reverse chronological order (newest first)
+- **Batch size**: Fetches 100 transactions per request
+- **Continuous polling**: The `poll_galoy_transactions` job runs periodically to import new transactions
+- **Unpaired transaction re-checking**: Separately polls for older unpaired transactions that may have been missed
+
+**Transaction identification**:
+- **Dealer account detection**: Identifies transactions involving the hardcoded "dealer" ledger account
+- **USD conversion tracking**: Monitors when users deposit Bitcoin but want to hold USD value
+- **Settlement currency**: Tracks both BTC and USD settlement amounts with exchange rates
+
+### 2. **okx (okex-client)** - Derivatives exchange for hedging
+**Purpose**: Connects to OKX exchange to execute the core hedging strategy through Bitcoin perpetual swap contracts.
+
+**Role in hedging**:
+- **Perpetual swaps**: Shorts BTC-USD-SWAP contracts to hedge Bitcoin price exposure
+- **Position management**: Maintains short positions equivalent to user USD liability
+- **Account balancing**: Manages transfers between funding and trading accounts
+- **Price data**: Fetches real-time BTC prices for hedging calculations
+
+### 3. **bria** - Bitcoin custody and on-chain operations
+**Purpose**: Handles Bitcoin on-chain transactions and custody operations for the stablesats system.
+
+**How it works for stablesats**: 
+- **Funding adjustments**: Stablesats maintains Bitcoin in two locations - its own custody (managed by Bria) and on the OKX exchange for trading. When the OKX trading account runs low on Bitcoin capital needed for hedging operations, stablesats uses Bria to send Bitcoin on-chain from its custody to OKX deposit addresses. Conversely, when excess Bitcoin accumulates on OKX, it can be withdrawn back to stablesats custody via Bria to optimize capital allocation
+- **Withdrawal operations**: Uses Bria to withdraw Bitcoin from stablesats custody to OKX exchange when more trading capital is needed
+
+### How they work together
+1. **User deposits Bitcoin** → Galoy-client detects transaction involving dealer account
+2. **Calculate hedge requirement** → System determines how much USD exposure needs hedging  
+3. **Execute hedge** → OKX-client shorts equivalent BTC perpetual swaps
+4. **Manage funding** → Bria-client transfers Bitcoin between custody and OKX as needed
+5. **Continuous rebalancing** → All three clients work together to maintain proper hedge ratios
+
+This creates a complete system where users can hold stable USD value while the system manages Bitcoin price volatility through derivatives hedging and proper capital management.
+
 ## How to run `stablesats`
 The stablesats command line interface (CLI) is an application that allows users to get price quotes, and runs configured processes.
 To view the CLI commands and options, run

@@ -21,7 +21,55 @@ services:
   fulcrum:
     ports:
       - "50001:50001"
-  stablesats:
-    # Disable the stablesats container to run local development version
-    deploy:
-      replicas: 0
+
+  # Removed - handled by Tilt resource instead
+  stablesats: !reset null
+
+  # Even though the "!reset null" will remove the service, it does not remove the dependencies
+  # Remove stablesats dependency from services that depend on it
+  galoy: 
+    depends_on: !override
+      - apollo-router
+      - bitcoind
+      - bitcoind-signer
+      - lnd1
+      - lnd-outside-1
+      - bria
+      - fulcrum
+      # - stablesats  
+      - svix
+      - hydra
+
+  trigger: 
+    depends_on: !override
+      - lnd1
+      - lnd-outside-1
+      - bria
+      - mongodb
+      - redis
+      # - stablesats
+      - notifications
+      - price
+      - price-history
+      - svix
+
+  quickstart-test: 
+    depends_on: !override
+    - apollo-router
+    - oathkeeper
+    - kratos
+    - galoy
+    - trigger
+    - redis
+    - mongodb
+    - mongodb-migrate
+    - price
+    - bitcoind
+    - bitcoind-signer
+    - lnd1
+    - lnd-outside-1
+    - bria
+    - fulcrum
+    # - stablesats
+    - svix
+    - hydra

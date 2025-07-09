@@ -9,22 +9,13 @@ local_resource(
     "bria",
   ]
 )
-local_resource(
-  name='init-lightning',
-  labels = ['dev-setup'],
-  cmd='vendor/galoy-quickstart/bin/init-lightning.sh',
-  resource_deps = [
-    "lnd1",
-    "lnd-outside-1",
-  ]
-)
 
 local_resource(
   name='setup-stablesats-db',
   labels = ['dev-setup'],
   cmd='make setup-db',
   resource_deps = [
-    "stablesats-pg",
+    "stablesats-pg"
   ]
 )
 
@@ -42,7 +33,6 @@ local_resource(
   ],
   resource_deps = [
       "init-onchain",
-      "init-lightning",
       "setup-stablesats-db",
   ],
 )
@@ -59,7 +49,9 @@ if is_ci:
 )
 
 docker_compose(['vendor/galoy-quickstart/docker-compose.yml', 'docker-compose.yml', 'docker-compose.override.yml'])
-galoy_services = ["apollo-router", "galoy", "trigger", "redis", "mongodb", "mongodb-migrate", "price", "price-history", "price-history-migrate", "price-history-pg", "svix", "svix-pg" ]
+
+
+galoy_services = ["apollo-router", "galoy", "trigger", "redis", "mongodb", "mongodb-migrate", "price", "price-history", "price-history-migrate", "price-history-pg", "svix", "svix-pg", "notifications", "notifications-pg" ]
 auth_services = ["oathkeeper", "kratos", "kratos-pg", "hydra", "hydra-pg", "hydra-migrate"]
 bitcoin_services = ["bitcoind", "bitcoind-signer", "lnd1", "lnd-outside-1", "bria", "bria-pg", "fulcrum"]
 stablesats_services = ["stablesats-pg"]
@@ -70,10 +62,8 @@ for service in auth_services:
     dc_resource(service, labels = ["auth"])
 for service in bitcoin_services:
     dc_resource(service, labels = ["bitcoin"])
-# for service in stablesats_services:
-#     dc_resource(service, labels = ["stablesats-dev"])
-# for service in blink_kyc:
-#     dc_resource(service, labels = ["blink-kyc"])
+for service in stablesats_services:
+    dc_resource(service, labels = ["stablesats"])
 
 dc_resource('otel-agent', labels = ["otel"])
 dc_resource('quickstart-test', labels = ['quickstart'], auto_init=False)
