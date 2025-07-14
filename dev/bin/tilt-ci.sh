@@ -9,6 +9,23 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 
 echo "    --> calculated repo root: ${REPO_ROOT}"
 
+echo "    --> setting honeycomb env vars to fake values"
+export HONEYCOMB_API_KEY=your_honeycomb_key
+export HONEYCOMB_DATASET=your_dataset_name
+
+export HOST_PROJECT_PATH=$(pwd)
+export COMPOSE_PROJECT_NAME=blink-quickstart
+export GALOY_GRAPHQL_URI=http://localhost:4455/graphql
+export GALOY_PHONE_CODE=403370
+echo "        HONEYCOMB_API_KEY=${HONEYCOMB_API_KEY}"
+echo "        HONEYCOMB_DATASET=${HONEYCOMB_DATASET}"
+echo "        HOST_PROJECT_PATH=${HOST_PROJECT_PATH}"
+echo "        COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}"
+echo "        GALOY_GRAPHQL_URI=${GALOY_GRAPHQL_URI}"
+
+echo "        GALOY_PHONE_NUMBER=${GALOY_PHONE_NUMBER}"
+echo "        GALOY_PHONE_CODE=${GALOY_PHONE_CODE}"
+
 # Run tilt ci and capture its output and exit status
 tilt ci --file "${REPO_ROOT}/Tiltfile" \
   | tee "${REPO_ROOT}/dev/.e2e-tilt.log"

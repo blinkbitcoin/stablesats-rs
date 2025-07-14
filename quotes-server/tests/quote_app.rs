@@ -47,7 +47,7 @@ async fn quotes_app() -> anyhow::Result<()> {
 
     let pg_host = std::env::var("PG_HOST").unwrap_or_else(|_| "localhost".into());
     let pg_port = std::env::var("PG_PORT").unwrap_or_else(|_| "5432".into());
-    let pg_con = format!("postgres://user:password@{}:{}/pg", pg_host, pg_port);
+    let pg_con = format!("postgres://user:password@{pg_host}:{pg_port}/pg");
     let pool = sqlx::PgPool::connect(&pg_con).await?;
 
     let ledger = ledger::Ledger::init(&pool).await?;

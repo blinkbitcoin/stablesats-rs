@@ -1,4 +1,4 @@
-build: ./target/debug/stablesats setup-db
+build: setup-db
 	cargo build
 
 
