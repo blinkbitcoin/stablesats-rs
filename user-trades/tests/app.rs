@@ -24,8 +24,9 @@ fn galoy_client_configuration() -> GaloyClientConfig {
 #[tokio::test]
 #[serial]
 async fn publishes_liability() -> anyhow::Result<()> {
-    let pg_host = std::env::var("PG_HOST").unwrap_or("localhost".to_string());
-    let pg_con = format!("postgres://user:password@{pg_host}:5432/pg",);
+    let pg_host = std::env::var("PG_HOST").unwrap_or_else(|_| "localhost".into());
+    let pg_port = std::env::var("PG_PORT").unwrap_or_else(|_| "5432".into());
+    let pg_con = format!("postgres://user:password@{}:{}/pg", pg_host, pg_port);
     let pool = sqlx::PgPool::connect(&pg_con).await?;
     let ledger = ledger::Ledger::init(&pool).await?;
     let mut events = ledger.okex_usd_liability_balance_events().await?;

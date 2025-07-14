@@ -1,11 +1,13 @@
-version: "2"
 services:
   otel-agent:
     ports:
     - "4318:4318"
-  postgres:
+  kratos-pg:
     ports:
-    - "5432:5432"
+    - 5439:5432
+  stablesats-pg:
+    ports:
+    - "5440:5432"
   bria:
     ports:
     - "2743:2743"
@@ -19,3 +21,55 @@ services:
   fulcrum:
     ports:
       - "50001:50001"
+
+  # Removed - handled by Tilt resource instead
+  stablesats: !reset null
+
+  # Even though the "!reset null" will remove the service, it does not remove the dependencies
+  # Remove stablesats dependency from services that depend on it
+  galoy: 
+    depends_on: !override
+      - apollo-router
+      - bitcoind
+      - bitcoind-signer
+      - lnd1
+      - lnd-outside-1
+      - bria
+      - fulcrum
+      # - stablesats  
+      - svix
+      - hydra
+
+  trigger: 
+    depends_on: !override
+      - lnd1
+      - lnd-outside-1
+      - bria
+      - mongodb
+      - redis
+      # - stablesats
+      - notifications
+      - price
+      - price-history
+      - svix
+
+  quickstart-test: 
+    depends_on: !override
+    - apollo-router
+    - oathkeeper
+    - kratos
+    - galoy
+    - trigger
+    - redis
+    - mongodb
+    - mongodb-migrate
+    - price
+    - bitcoind
+    - bitcoind-signer
+    - lnd1
+    - lnd-outside-1
+    - bria
+    - fulcrum
+    # - stablesats
+    - svix
+    - hydra

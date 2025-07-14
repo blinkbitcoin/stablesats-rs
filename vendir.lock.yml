@@ -1,0 +1,11 @@
+apiVersion: vendir.k14s.io/v1alpha1
+directories:
+- contents:
+  - git:
+      commitTitle: 'chore: rename default-name for quickstart syncing (#122)'
+      sha: 05062dbdd95d0c0f33fd85c0d5e0f2cb8139e1c0
+      tags:
+      - 0.21.57-3-g05062dbdd
+    path: blink-quickstart
+  path: vendor
+kind: LockConfig

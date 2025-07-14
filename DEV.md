@@ -5,6 +5,7 @@
     - [Local Development Mode](#local-development-mode)
 - [How to run stablesats](#how-to-run-stablesats)
 - [Testing](#testing)
+- [Database Configuration](#database-configuration)
 - [Check code](#check-code)
 - [Contributing](#contributing)
 
@@ -77,37 +78,6 @@ $ make build
 ```
 8. Run `stablesats`: See the section on [how to run](#how-to-run-stablesats) the application
 
-## How to run `stablesats`
-The stablesats command line interface (CLI) is an application that allows users to get price quotes, and runs configured processes.
-To view the CLI commands and options, run
-```
-$ stablesats
-```
-
-To run the configured processes:
-- Make a copy of the [stablesats](stablesats.yml) configuration file and rename the file. Ensure that this new configuration is not committed (add to global `.gitignore`) if contributing to the project.
-- Uncomment the file and update the `galoy.api` and `galoy.phone_number` config values with values contained [here](https://github.com/GaloyMoney/galoy/blob/main/src/graphql/docs/README.md). Change the `okex.simulated` value to `true`.
-- Run the CLI
-```
-$ stablesats -c $NEW_CONFIGURATION_FILE run
-```
-- For help on the `run` command
-```
-$ stablesats run --help
-```
-
-To get price quotes:
-- Open a new terminal
-- Request a quote for given price
-```
-$ stablesats price 10000
-```
-- For help on the `price` command
-
-```
-$ stablesats price --help
-```
-
 ## Testing
 To run the integration tests, run the command
 ```
@@ -121,6 +91,28 @@ Example
 ```
 $ cargo test -p okex-price
 ```
+
+## Database Configuration
+
+The stablesats project uses different environment variables for database connections depending on the context:
+
+### Migration vs Runtime vs Tests
+- **`DATABASE_URL`**: Used by SQLx for running database migrations (`cargo sqlx migrate run`)
+- **`PG_CON`**: Used by the main application runtime (passed via CLI)
+- **`PG_HOST`/`PG_PORT`**: Used by individual tests to construct connection strings
+
+### Port Configuration
+- **CI/Docker environment**: Database runs on port 5432 (container internal)
+- **Local development**: Database runs on port 5440 (host port, mapped from container port 5432)
+
+### Environment Variables for Local Testing
+When running tests locally, ensure the correct port is used:
+```bash
+export PG_PORT=5440  # For local development
+make test-local
+```
+
+The `docker-compose.override.yml` maps the stablesats-pg container port 5432 to host port 5440 to avoid conflicts with other PostgreSQL instances.
 
 ## Check code
 To pass github actions, check that your code is formatted and linted properly

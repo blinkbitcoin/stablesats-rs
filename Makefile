@@ -1,5 +1,17 @@
-build:
+build: ./target/debug/stablesats setup-db
 	cargo build
+
+
+start-db:
+	docker-compose -f vendor/blink-quickstart/docker-compose.yml -f docker-compose.yml -f docker-compose.override.yml up -d stablesats-pg
+	@echo "Waiting for database to be ready..."
+	@sleep 5
+
+setup-db: start-db
+	cargo sqlx migrate run
+
+stop-db:
+	docker-compose -f vendor/blink-quickstart/docker-compose.yml -f docker-compose.yml -f docker-compose.override.yml down stablesats-pg
 
 watch:
 	RUST_BACKTRACE=full cargo watch -s 'cargo test -- --nocapture'
@@ -13,9 +25,19 @@ check-code:
 	SQLX_OFFLINE=true cargo audit
 
 test-in-ci:
-	DATABASE_URL=postgres://user:password@postgres:5432/pg cargo sqlx migrate run
-	make create-tmp-env-ci && \
-	SQLX_OFFLINE=true cargo nextest run --verbose --locked
+	./dev/bin/tilt-ci.sh
+
+test-local: tilt-up-bg
+	DATABASE_URL=postgres://user:password@localhost:5440/pg cargo sqlx migrate run
+	export GALOY_GRAPHQL_URI="http://localhost:4455/graphql"
+	export GALOY_PHONE_CODE="000000"
+	PG_PORT=5440 SQLX_OFFLINE=true cargo nextest run --verbose --locked
+
+tilt-up:
+	tilt up
+
+tilt-up-bg:
+	tilt up &
 
 cli-run:
 	SQLX_OFFLINE=true cargo run --bin stablesats run
@@ -26,21 +48,5 @@ build-x86_64-unknown-linux-musl-release:
 build-x86_64-apple-darwin-release:
 	bin/osxcross-compile.sh
 
-clean-deps:
+docker-down:
 	docker compose down
-
-start-deps:
-	docker compose up -d integration-deps
-
-start-deps-local:
-	docker compose up -d postgres
-
-reset-deps: clean-deps start-deps setup-db
-
-reset-deps-local: clean-deps start-deps-local setup-db
-
-setup-db:
-	cargo sqlx migrate run
-
-create-tmp-env-ci:
-	envsubst < .env.ci > tmp.env.ci
