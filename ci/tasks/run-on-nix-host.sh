@@ -3,6 +3,8 @@
 set -eu
 
 echo "    --> Executing run-on-nix-host.sh"
+echo "        running docker version: $(docker --version)"
+echo "        running docker compose version: $(docker compose version)"
 
 export CI_ROOT=$(pwd)
 
