@@ -10,8 +10,8 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 echo "    --> calculated repo root: ${REPO_ROOT}"
 
 echo "    --> setting honeycomb env vars to fake values"
-HONEYCOMB_API_KEY=your_honeycomb_key
-HONEYCOMB_DATASET=your_dataset_name
+export HONEYCOMB_API_KEY=your_honeycomb_key
+export HONEYCOMB_DATASET=your_dataset_name
 echo "        HONEYCOMB_API_KEY=${HONEYCOMB_API_KEY}"
 echo "        HONEYCOMB_DATASET=${HONEYCOMB_DATASET}"
 
