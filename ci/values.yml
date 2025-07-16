@@ -1,12 +1,12 @@
 #@data/values
 ---
-git_uri: git@github.com:GaloyMoney/stablesats-rs.git
-git_branch: main
-git_charts_uri: git@github.com:GaloyMoney/charts.git
+git_uri: git@github.com:blinkbitcoin/stablesats-rs.git
+git_branch: kn/quickstart
+git_charts_uri: git@github.com:blinkbitcoin/charts.git
 git_charts_branch: main
 git_charts_bot_branch: bot-bump-stablesats-rs-image
-github_private_key: ((github.private_key))
-github_token: ((github.api_token))
+github_private_key: ((github-blinkbitcoin.private_key))
+github_token: ((github-blinkbitcoin.api_token))
 docker_registry: us.gcr.io/galoy-org
 docker_registry_user: ((docker-creds.username))
 docker_registry_password: ((docker-creds.password))

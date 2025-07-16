@@ -98,6 +98,9 @@ jobs:
     tags:
     - galoy-staging
     config:
+      caches:
+      - path: cargo-home
+      - path: cargo-target-dir
       platform: linux
       image_resource:
         type: registry-image
@@ -110,9 +113,6 @@ jobs:
       - name: docker-host
       - name: repo
         path: stablesats-rs-integration-tests
-      caches:
-      - path: cargo-home
-      - path: cargo-target-dir
       params:
         OKEX_API_KEY: ((okex-creds.api_key))
         OKEX_PASSPHRASE: ((okex-creds.passphrase))
@@ -123,21 +123,13 @@ jobs:
         GOOGLE_CREDENTIALS: ((staging-gcp-creds.creds_json))
         SSH_PRIVATE_KEY: ((staging-ssh.ssh_private_key))
         SSH_PUB_KEY: ((staging-ssh.ssh_public_key))
-        TEST_CONTAINER: integration-tests
-        JEST_TIMEOUT: 90000
+        CMD: ./dev/bin/tilt-ci.sh
       run:
-        path: pipeline-tasks/ci/vendor/tasks/test-on-docker-host.sh
+        path: pipeline-tasks/ci/tasks/run-on-nix-host.sh
     ensure:
       put: docker-host
       params:
         release: docker-host
-  on_failure:
-    put: slack
-    params:
-      channel: stablesats-rs-github
-      username: concourse
-      icon_url: https://cl.ly/2F421Y300u07/concourse-logo-blue-transparent.png
-      text: '<$ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME| :face_with_symbols_on_mouth: $BUILD_JOB_NAME> failed!'
 - name: release
   serial: true
   plan:
@@ -233,7 +225,7 @@ jobs:
       outputs:
       - name: artifacts
       params:
-        BRANCH: main
+        BRANCH: kn/quickstart
       run:
         path: pipeline-tasks/ci/tasks/github-release.sh
   - put: gh-release
@@ -333,7 +325,7 @@ jobs:
       run:
         path: pipeline-tasks/ci/tasks/set-dev-version.sh
       params:
-        BRANCH: main
+        BRANCH: kn/quickstart
   - put: repo
     params:
       repository: repo
@@ -399,7 +391,7 @@ jobs:
       - name: latest-image
       - name: charts-repo
       params:
-        GH_TOKEN: ((github.api_token))
+        GH_TOKEN: ((github-blinkbitcoin.api_token))
         BRANCH: main
         BOT_BRANCH: bot-bump-stablesats-rs-image
         CHARTS_SUBDIR: stablesats
@@ -412,9 +404,9 @@ resources:
     ignore_paths:
     - ci/*[^md]
     fetch_tags: true
-    uri: git@github.com:GaloyMoney/stablesats-rs.git
-    branch: main
-    private_key: ((github.private_key))
+    uri: git@github.com:blinkbitcoin/stablesats-rs.git
+    branch: kn/quickstart
+    private_key: ((github-blinkbitcoin.private_key))
   webhook_token: ((webhook.secret))
 - name: pipeline-tasks
   type: git
@@ -424,9 +416,9 @@ resources:
     - ci/tasks/*
     - ci/config/*
     - Makefile
-    uri: git@github.com:GaloyMoney/stablesats-rs.git
-    branch: main
-    private_key: ((github.private_key))
+    uri: git@github.com:blinkbitcoin/stablesats-rs.git
+    branch: kn/quickstart
+    private_key: ((github-blinkbitcoin.private_key))
 - name: slack
   type: slack-notification
   source:
@@ -437,15 +429,15 @@ resources:
     initial_version: 0.0.0
     driver: git
     file: version
-    uri: git@github.com:GaloyMoney/stablesats-rs.git
+    uri: git@github.com:blinkbitcoin/stablesats-rs.git
     branch: version
-    private_key: ((github.private_key))
+    private_key: ((github-blinkbitcoin.private_key))
 - name: gh-release
   type: github-release
   source:
     owner: GaloyMoney
     repository: stablesats-rs
-    access_token: ((github.api_token))
+    access_token: ((github-blinkbitcoin.api_token))
 - name: edge-image
   type: registry-image
   source:
@@ -463,22 +455,22 @@ resources:
 - name: charts-repo
   type: git
   source:
-    uri: git@github.com:GaloyMoney/charts.git
+    uri: git@github.com:blinkbitcoin/charts.git
     branch: main
-    private_key: ((github.private_key))
+    private_key: ((github-blinkbitcoin.private_key))
 - name: charts-repo-bot-branch
   type: git
   source:
-    uri: git@github.com:GaloyMoney/charts.git
+    uri: git@github.com:blinkbitcoin/charts.git
     branch: bot-bump-stablesats-rs-image
-    private_key: ((github.private_key))
+    private_key: ((github-blinkbitcoin.private_key))
 - name: docker-host
   type: pool
   source:
     uri: git@github.com:GaloyMoney/concourse-locks.git
     branch: main
     pool: docker-hosts
-    private_key: ((github.private_key))
+    private_key: ((github-blinkbitcoin.private_key))
 resource_types:
 - name: slack-notification
   type: docker-image
