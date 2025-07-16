@@ -9,6 +9,10 @@ jobs:
     name: Integration Test
     runs-on: ubuntu-latest
     steps:
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v4
+      - name: Run the Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
       - uses: actions/checkout@v3
       - name: Run integration tests
         env:
@@ -19,4 +23,4 @@ jobs:
           BITFINEX_SECRET_KEY: ${{ secrets.BITFINEX_SECRET_KEY }}
           GALOY_PHONE_CODE: ${{ secrets.GALOY_PHONE_CODE }}
           GALOY_PHONE_NUMBER: ${{ secrets.GALOY_PHONE_NUMBER }}
-        run: docker compose -f docker-compose.yml run integration-tests
+        run: nix develop -cdev/bin/tilt-ci.sh

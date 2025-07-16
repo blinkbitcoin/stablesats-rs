@@ -1,7 +1,7 @@
 # About `stablesats`
-Stablesats is a part of the galoy OSS banking stack.
+Stablesats is a part of the blink OSS banking stack.
 It enables users that deposit Bitcoin to hold a USD denominated value in their wallets.
-It achieves this by identifying transactions that involve a hard-coded `dealer` ledger account in the Galoy ledger and calculating a target liability.
+It achieves this by identifying transactions that involve a hard-coded `dealer` ledger account in the blink ledger and calculating a target liability.
 This liability is subsequently hedged via shorting perpetual swap contracts on the okex exchange.
 
 ## Design
@@ -15,7 +15,7 @@ Like this we can run multiple copies of the processes to achieve high-availabili
 The main modules that can be run via the cli are:
 - `okex-price`: Module that streams price information from okex onto the pubsub
 - `price-server`: Module that exposes a grpc endpoint for clients to get up-to-date price information (cached from the pubsub messages coming from `okex-price`).
-- `user_trades`: Module that identifies how much the total usd liability exists in the galoy accounting ledger. It publishes the `SynthUsdLiabilityPayload` message for downstream trading modules to pick up.
+- `user_trades`: Module that identifies how much the total usd liability exists in the blink accounting ledger. It publishes the `SynthUsdLiabilityPayload` message for downstream trading modules to pick up.
 - `hedging`: Module that executes trades on okex to match the target liability received from the pubsub.
 
 ## Dependencies in stablesats-rs
@@ -24,7 +24,7 @@ The main modules that can be run via the cli are:
 **Purpose**: Connects to the Galoy banking backend (which powers Blink wallet) to monitor user transactions of the dealer-account and calculates the target liability balances.
 
 **How transaction polling works**:
-- **GraphQL endpoint**: Uses the `StablesatsTransactionsList` query against Galoy's GraphQL API of the dealer account
+- **GraphQL endpoint**: Uses the `StablesatsTransactionsList` query against Blink's GraphQL API of the dealer account
 - **Cursor-based pagination**: Uses `before` cursor parameter to fetch transactions in reverse chronological order (newest first)
 - **Batch size**: Fetches 100 transactions per request
 - **Continuous polling**: The `poll_galoy_transactions` job runs periodically to import new transactions
