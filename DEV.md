@@ -9,7 +9,7 @@
 - [Check code](#check-code)
 - [Contributing](#contributing)
 
-In its current implementation, `stablesats` is coupled to and dependent on the [galoy](https://github.com/GaloyMoney/galoy) backend to fetch user transactions on a bitcoin-based banking client, e.g. Bitcoin Beach Wallet. To get it running locally, you have to, among other dependencies, set up a local `galoy` backend as well. This document will walk you through the set up.
+In its current implementation, `stablesats` is coupled to and dependent on the [blink](https://github.com/blinkbitcoin/blink) backend to fetch user transactions on a bitcoin-based banking client, e.g. Bitcoin Beach Wallet. To get it running locally, you have to, among other dependencies, set up a local `blink` backend as well. This document will walk you through the set up.
 
 ## Dependencies
 Last tested with the following tools and application:
@@ -34,21 +34,21 @@ Docker version 20.10.18, build b40c2f6
 $ direnv --version
 2.32.1
 ```
-- [Galoy backend](https://github.com/GaloyMoney/galoy)
+- [Blink backend](https://github.com/blinkbitcoin/blink)
 
 ## Getting started
 ### Local Development Mode
-1. Clone the [galoy](https://github.com/GaloyMoney/galoy) backend and follow the instructions detailed in the documentation. Pay particular attention to the information presented [here](https://github.com/GaloyMoney/galoy/blob/main/src/graphql/docs/README.md) to get local developer access to the graphql API
-2. Take note to shutdown the instance of the running stablesats container provisioned alongside galoy backend. Get the container ID
+1. Clone the [blink](https://github.com/blinkbitcoin/blink) backend and follow the instructions detailed in the documentation. Pay particular attention to the information presented [here](https://github.com/blinkbitcoin/blink/blob/main/src/graphql/docs/README.md) to get local developer access to the graphql API
+2. Take note to shutdown the instance of the running stablesats container provisioned alongside blink backend. Get the container ID
 ```
-$ cd /path/to/galoy
+$ cd /path/to/blink
 $ docker compose ps
 ```
 and stop/kill the container
 ```
 $ docker stop $STABLESATS_CONTAINER_ID
 ```
-3. Clone the [stablesats](https://github.com/GaloyMoney/stablesats-rs) repository and change to its directory
+3. Clone the [stablesats](https://github.com/blinkbitcoin/stablesats-rs) repository and change to its directory
 ```
 cd stablesats
 ```
@@ -56,7 +56,7 @@ cd stablesats
 ```
 direnv allow
 ```
-5. Take note to update the postgres port numbers of any of `user-trades-db` and `hedging-db` to ensure these databases run alongside the postgres database(s) on `galoy`. Make the changes in [docker-compose.override](docker-compose.override.yml), in [user-trades/.env](.user-trades/.env) and/or [hedging/.env](.user-trades/.env) files
+5. Take note to update the postgres port numbers of any of `user-trades-db` and `hedging-db` to ensure these databases run alongside the postgres database(s) on `blink`. Make the changes in [docker-compose.override](docker-compose.override.yml), in [user-trades/.env](.user-trades/.env) and/or [hedging/.env](.user-trades/.env) files
 
 6. Run the local containers `stablesats` depends on
 ```
