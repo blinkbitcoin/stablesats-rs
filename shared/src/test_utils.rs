@@ -21,7 +21,7 @@ impl DatabaseTestFixture {
         } else {
             let pg_host = std::env::var("PG_HOST").unwrap_or_else(|_| "localhost".into());
             let pg_port = std::env::var("PG_PORT").unwrap_or_else(|_| "5432".into());
-            format!("postgres://user:password@{}:{}/pg", pg_host, pg_port)
+            format!("postgres://user:password@{pg_host}:{pg_port}/pg")
         };
 
         let pool = PgPool::connect(&database_url).await?;
