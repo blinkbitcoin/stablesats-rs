@@ -9,7 +9,7 @@ export app_version=$(cat version/version)
 pushd charts-repo
 
 yq -i e '.stablesats.image.digest = strenv(digest)' ./charts/stablesats/values.yaml
-sed -i "s|\(digest: \"${digest}\"\).*$|\1 # METADATA:: repository=https://github.com/GaloyMoney/stablesats-rs;commit_ref=${ref};app=stablesats;|g" "./charts/stablesats/values.yaml"
+sed -i "s|\(digest: \"${digest}\"\).*$|\1 # METADATA:: repository=https://github.com/blinkbitcoin/stablesats-rs;commit_ref=${ref};app=stablesats;|g" "./charts/stablesats/values.yaml"
 
 yq -i e '.appVersion = strenv(app_version)' ./charts/stablesats/Chart.yaml
 

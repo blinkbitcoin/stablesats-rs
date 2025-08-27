@@ -44,11 +44,6 @@
         ]
         ++ lib.optionals pkgs.stdenv.isDarwin [
           darwin.apple_sdk.frameworks.SystemConfiguration
-        ]
-        ++ lib.optionals pkgs.stdenv.isLinux [
-          openssl
-          pkg-config
-          openssl.dev
         ];
 
       devEnvVars = rec {

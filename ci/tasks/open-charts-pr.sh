@@ -23,7 +23,7 @@ ${digest}
 
 Code diff contained in this image:
 
-https://github.com/GaloyMoney/stablesats-rs/compare/${old_ref}...${ref}
+https://github.com/blinkbitcoin/stablesats-rs/compare/${old_ref}...${ref}
 EOF
 
 gh pr close ${BOT_BRANCH} || true
