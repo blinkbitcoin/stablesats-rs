@@ -196,7 +196,8 @@ impl OrderBookView {
     pub fn sell_usd(
         &self,
     ) -> VolumeBasedPriceConverter<
-        std::collections::btree_map::Iter<QuotePriceCentsForOneSat, VolumeInCents>,
+        '_,
+        std::collections::btree_map::Iter<'_, QuotePriceCentsForOneSat, VolumeInCents>,
     > {
         VolumeBasedPriceConverter::new(self.asks.iter())
     }
@@ -204,7 +205,10 @@ impl OrderBookView {
     pub fn buy_usd(
         &self,
     ) -> VolumeBasedPriceConverter<
-        std::iter::Rev<std::collections::btree_map::Iter<QuotePriceCentsForOneSat, VolumeInCents>>,
+        '_,
+        std::iter::Rev<
+            std::collections::btree_map::Iter<'_, QuotePriceCentsForOneSat, VolumeInCents>,
+        >,
     > {
         VolumeBasedPriceConverter::new(self.bids.iter().rev())
     }
