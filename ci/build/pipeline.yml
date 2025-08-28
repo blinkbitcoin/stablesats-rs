@@ -443,7 +443,7 @@ resources:
   - name: gh-release
     type: github-release
     source:
-      owner: GaloyMoney
+      owner: blinkbitcoin
       repository: stablesats-rs
       access_token: ((github.api_token))
   - name: edge-image
