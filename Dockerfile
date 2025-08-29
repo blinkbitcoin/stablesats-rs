@@ -1,4 +1,4 @@
-FROM clux/muslrust:stable AS build
+FROM clux/muslrust:1.89.0-stable AS build
 COPY . /src
 WORKDIR /src
 RUN SQLX_OFFLINE=true cargo build --locked
