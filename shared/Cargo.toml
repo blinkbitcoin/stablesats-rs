@@ -4,7 +4,7 @@ version = "0.12.9-dev"
 edition = "2021"
 authors = ["Justin Carter <justin@galoy.io>"]
 license = "MIT"
-repository = "https://github.com/GaloyMoney/stablesats-rs"
+repository = "https://github.com/blinkbitcoin/stablesats-rs"
 description = "Code shared between stablesats packages"
 
 [features]
@@ -13,7 +13,7 @@ fail-on-warnings = []
 
 [dependencies]
 # setting default-features = false to not include vulnerable time crate
-chrono = { workspace = true } 
+chrono = { workspace = true }
 derive_builder = { workspace = true }
 futures = { workspace = true }
 opentelemetry = { workspace = true }

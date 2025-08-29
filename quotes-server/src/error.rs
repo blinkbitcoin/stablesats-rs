@@ -3,6 +3,7 @@ use thiserror::Error;
 use crate::{price::ExchangePriceCacheError, quote::QuoteError};
 
 #[derive(Error, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum QuotesAppError {
     #[error("QuotesAppError: {0}")]
     ExchangePriceCacheError(#[from] ExchangePriceCacheError),

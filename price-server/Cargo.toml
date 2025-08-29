@@ -4,7 +4,7 @@ version = "0.12.9-dev"
 edition = "2021"
 authors = ["Justin Carter <justin@galoy.io>"]
 license = "MIT"
-repository = "https://github.com/GaloyMoney/stablesats-rs"
+repository = "https://github.com/blinkbitcoin/stablesats-rs"
 description = "Server that exposes prices for hedging"
 
 [features]
@@ -14,7 +14,7 @@ fail-on-warnings = []
 [dependencies]
 shared = { path = "../shared", package = "stablesats-shared" }
 
-chrono = { workspace = true } 
+chrono = { workspace = true }
 prost = { workspace = true }
 tonic = { workspace = true }
 axum-core = { workspace = true }
@@ -34,7 +34,7 @@ async-trait = { workspace = true }
 
 [build-dependencies]
 protobuf-src = { workspace = true }
-tonic-build = { workspace = true}
+tonic-build = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

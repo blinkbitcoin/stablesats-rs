@@ -128,7 +128,7 @@ impl GaloyTransactions {
 
     pub async fn list_unpaired_transactions(
         &self,
-    ) -> Result<UnpairedTransactions, UserTradesError> {
+    ) -> Result<UnpairedTransactions<'_>, UserTradesError> {
         let mut tx = self.pool.begin().await?;
         let res = sqlx::query!(
             "
