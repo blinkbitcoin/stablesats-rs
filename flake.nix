@@ -41,7 +41,7 @@
           ytt
           jq
           tilt
-        ]
+        ];
 
       devEnvVars = rec {
         PGDATABASE = "pg";
