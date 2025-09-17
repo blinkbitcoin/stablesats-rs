@@ -14,7 +14,6 @@ pub async fn init_pool() -> anyhow::Result<sqlx::PgPool> {
 #[tokio::test]
 #[serial]
 #[file_serial]
-#[ignore = "Integration test disabled due to SQLx QueryBuilder panic issues"]
 async fn user_buys_and_sells_usd() -> anyhow::Result<()> {
     let pool = init_pool().await?;
 
@@ -86,7 +85,6 @@ async fn user_buys_and_sells_usd() -> anyhow::Result<()> {
 #[tokio::test]
 #[serial]
 #[file_serial]
-#[ignore = "Integration test disabled due to SQLx QueryBuilder panic issues"]
 async fn adjust_exchange_position() -> anyhow::Result<()> {
     let pool = init_pool().await?;
     let ledger = Ledger::init(&pool).await?;
@@ -140,7 +138,6 @@ async fn adjust_exchange_position() -> anyhow::Result<()> {
 #[tokio::test]
 #[serial]
 #[file_serial]
-#[ignore = "Integration test disabled due to SQLx QueryBuilder panic issues"]
 async fn buy_and_sell_quotes() -> anyhow::Result<()> {
     let pool = init_pool().await?;
 
@@ -197,7 +194,6 @@ async fn buy_and_sell_quotes() -> anyhow::Result<()> {
 #[tokio::test]
 #[serial]
 #[file_serial]
-#[ignore = "Integration test disabled due to SQLx QueryBuilder panic issues"]
 async fn exchange_allocation() -> anyhow::Result<()> {
     let pool = init_pool().await?;
     let ledger = Ledger::init(&pool).await?;

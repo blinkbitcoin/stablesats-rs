@@ -61,8 +61,7 @@ fn bria_client_config() -> BriaClientConfig {
 #[tokio::test]
 #[serial]
 #[file_serial]
-#[ignore = "Integration test disabled due to SQLx QueryBuilder panic issues"]
-async fn user_trades() -> anyhow::Result<()> {
+async fn hedging() -> anyhow::Result<()> {
     println!("🎯 Test started!");
 
     println!("🔌 Setting up database test fixture...");

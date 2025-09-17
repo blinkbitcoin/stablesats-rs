@@ -30,7 +30,6 @@ fn load_fixture() -> OrderBookPayload {
 
 #[tokio::test]
 #[file_serial]
-#[ignore = "Integration test disabled due to SQLx QueryBuilder panic issues"]
 async fn quotes_app() -> anyhow::Result<()> {
     let (tick_send, tick_recv) =
         memory::channel(chrono::Duration::from_std(std::time::Duration::from_secs(2)).unwrap());

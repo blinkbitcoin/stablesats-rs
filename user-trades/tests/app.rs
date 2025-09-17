@@ -23,7 +23,6 @@ fn galoy_client_configuration() -> GaloyClientConfig {
 
 #[tokio::test]
 #[serial]
-#[ignore = "Integration test disabled due to SQLx QueryBuilder panic issues"]
 async fn publishes_liability() -> anyhow::Result<()> {
     let pg_host = std::env::var("PG_HOST").unwrap_or_else(|_| "localhost".into());
     let pg_port = std::env::var("PG_PORT").unwrap_or_else(|_| "5432".into());
