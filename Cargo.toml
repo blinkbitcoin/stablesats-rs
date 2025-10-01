@@ -41,7 +41,7 @@ sqlx = { version = "0.8.3", features = [
 sqlxmq = { git = "https://github.com/HyperparamAI/sqlxmq", rev = "52c3daf6af55416aefa4b1114e108f968f6c57d4", default-features = false, features = [
   "runtime-tokio-rustls",
 ] }
-sqlx-ledger = { version = "0.11.5", features = ["otel"] }
+sqlx-ledger = {  git = "https://github.com/blinkbitcoin/sqlx-ledger", branch = "fix-query-builder", features = ["otel"] }
 tokio = { version = "1.44.2", features = ["full"] }
 futures = "0.3.30"
 async-trait = "0.1.78"
