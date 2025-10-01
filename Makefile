@@ -32,7 +32,7 @@ test-local: tilt-up-bg
 	export GALOY_GRAPHQL_URI="http://localhost:4455/graphql"
 	export GALOY_PHONE_CODE="000000"
 	PG_PORT=5440 SQLX_OFFLINE=true RUST_BACKTRACE=1 cargo nextest run --verbose --locked --no-fail-fast --no-capture
-	
+
 tilt-up:
 	tilt up
 
