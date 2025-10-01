@@ -33,7 +33,10 @@ fn okex_config() -> OkexConfig {
 fn galoy_client_config() -> GaloyClientConfig {
     let api = env::var("GALOY_GRAPHQL_URI").expect("GALOY_GRAPHQL_URI not set");
     let phone_number = env::var("GALOY_PHONE_NUMBER").expect("GALOY_PHONE_NUMBER not set");
-    let code = env::var("GALOY_PHONE_CODE").expect("GALOY_PHONE_CODE not set");
+    //let code = env::var("GALOY_PHONE_CODE").expect("GALOY_PHONE_CODE not set");
+    let code = "000000".to_string();
+
+    println!("phone number: {}", phone_number);
 
     GaloyClientConfig {
         api,
