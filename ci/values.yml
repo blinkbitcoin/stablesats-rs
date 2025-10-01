@@ -1,7 +1,7 @@
 #@data/values
 ---
 git_uri: git@github.com:blinkbitcoin/stablesats-rs.git
-git_branch: kn/ci_integration
+git_branch: main
 git_charts_uri: git@github.com:blinkbitcoin/charts.git
 git_charts_branch: main
 git_charts_bot_branch: bot-bump-stablesats-rs-image
