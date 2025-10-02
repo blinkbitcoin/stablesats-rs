@@ -17,7 +17,7 @@ use shared::test_utils::DatabaseTestFixture;
 
 fn okex_config() -> OkexConfig {
     let api_key = env::var("OKEX_API_KEY").expect("OKEX_API_KEY not set");
-    let passphrase = env::var("OKEX_PASSPHRASE").expect("OKEX_PASS_PHRASE not set");
+    let passphrase = env::var("OKEX_PASSPHRASE").expect("OKEX_PASSPHRASE not set");
     let secret_key = env::var("OKEX_SECRET_KEY").expect("OKEX_SECRET_KEY not set");
     OkexConfig {
         client: OkexClientConfig {
