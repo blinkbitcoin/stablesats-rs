@@ -8,7 +8,7 @@ use okex_client::*;
 
 async fn configured_okex_client() -> anyhow::Result<OkexClient> {
     let api_key = env::var("OKEX_API_KEY").expect("OKEX_API_KEY not set");
-    let passphrase = env::var("OKEX_PASSPHRASE").expect("OKEX_PASS_PHRASE not set");
+    let passphrase = env::var("OKEX_PASSPHRASE").expect("OKEX_PASSPHRASE not set");
     let secret_key = env::var("OKEX_SECRET_KEY").expect("OKEX_SECRET_KEY not set");
 
     let client = OkexClient::new(OkexClientConfig {
