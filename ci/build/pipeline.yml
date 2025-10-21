@@ -247,7 +247,7 @@ jobs:
       outputs:
       - name: artifacts
       params:
-        BRANCH: kn/ci_integration
+        BRANCH: main
       run:
         path: pipeline-tasks/ci/tasks/github-release.sh
   - put: gh-release
@@ -350,7 +350,7 @@ jobs:
       run:
         path: pipeline-tasks/ci/tasks/set-dev-version.sh
       params:
-        BRANCH: kn/ci_integration
+        BRANCH: main
   - put: repo
     params:
       repository: repo
@@ -431,7 +431,7 @@ resources:
     - ci/*[^md]
     fetch_tags: true
     uri: git@github.com:blinkbitcoin/stablesats-rs.git
-    branch: kn/ci_integration
+    branch: main
     private_key: ((github-blinkbitcoin.private_key))
   webhook_token: ((webhook.secret))
 - name: pipeline-tasks
@@ -443,7 +443,7 @@ resources:
     - ci/config/*
     - Makefile
     uri: git@github.com:blinkbitcoin/stablesats-rs.git
-    branch: kn/ci_integration
+    branch: main
     private_key: ((github-blinkbitcoin.private_key))
 - name: version
   type: semver
