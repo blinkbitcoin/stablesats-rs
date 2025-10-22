@@ -71,7 +71,7 @@ groups:
 jobs:
   -  #@ rust_check_code()
   -  #@ build_edge_image()
-  -  #@ run_on_nix_host("integration-tests", "./dev/bin/tilt-ci.sh", { "OKEX_API_KEY": data.values.okex_api_key, "OKEX_PASSPHRASE": data.values.okex_passphrase, "OKEX_SECRET_KEY": data.values.okex_secret_key, "GALOY_PHONE_NUMBER": data.values.galoy_phone_number, "GALOY_PHONE_CODE": data.values.galoy_phone_code })
+  -  #@ run_on_nix_host("integration-tests", "./dev/bin/tilt-ci.sh", { "OKEX_API_KEY": data.values.okex_api_key, "OKEX_PASSPHRASE": data.values.okex_passphrase, "OKEX_SECRET_KEY": data.values.okex_secret_key, "GALOY_API_KEY": data.values.galoy_api_key })
   - name: release
     serial: true
     plan:
