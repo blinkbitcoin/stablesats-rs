@@ -1,0 +1,22 @@
+name: Validate CI Values
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ci/values.yml'
+
+jobs:
+  validate-values:
+    name: Validate CI Values
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check git_branch value
+        run: |
+          git_branch=$(grep "^git_branch:" ci/values.yml | cut -d' ' -f2)
+          if [ "$git_branch" != "main" ]; then
+            echo "Error: git_branch must be 'main', but found '$git_branch'"
+            exit 1
+          fi
+          echo "✓ git_branch is correctly set to 'main'"
