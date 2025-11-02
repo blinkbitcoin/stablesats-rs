@@ -19,6 +19,16 @@ local_resource(
   ]
 )
 
+local_resource(
+  name='setup-dealer-api-key',
+  labels = ['dev-setup'],
+  cmd='dev/bin/setup-dealer-api-key.sh',
+  resource_deps = [
+    "galoy",
+    "api-keys",
+  ]
+)
+
 stablesats_serve_cmd = './target/debug/stablesats -c stablesats-dev.yml run'
 if is_ci:
   stablesats_serve_cmd = './target/debug/stablesats -c stablesats-dev.yml run'
@@ -43,7 +53,7 @@ if is_ci:
     labels = ['dev-setup'],
     cmd='make test-local',
     resource_deps = [
-      "setup-stablesats-db","galoy"
+      "setup-stablesats-db","galoy","setup-dealer-api-key"
     ],
     allow_parallel = False
 )
@@ -51,7 +61,7 @@ if is_ci:
 docker_compose(['vendor/blink-quickstart/docker-compose.yml', 'docker-compose.yml', 'docker-compose.override.yml'])
 
 
-galoy_services = ["apollo-router", "galoy", "trigger", "redis", "mongodb", "mongodb-migrate", "price", "price-history", "price-history-migrate", "price-history-pg", "svix", "svix-pg", "notifications", "notifications-pg" ]
+galoy_services = ["apollo-router", "galoy", "trigger", "redis", "mongodb", "mongodb-migrate", "price", "price-history", "price-history-migrate", "price-history-pg", "svix", "svix-pg", "notifications", "notifications-pg", "api-keys", "api-keys-pg"]
 auth_services = ["oathkeeper", "kratos", "kratos-pg", "hydra", "hydra-pg", "hydra-migrate"]
 bitcoin_services = ["bitcoind", "bitcoind-signer", "lnd1", "lnd-outside-1", "bria", "bria-pg", "fulcrum"]
 stablesats_services = ["stablesats-pg"]
