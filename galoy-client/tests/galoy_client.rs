@@ -3,8 +3,8 @@ use std::env;
 use galoy_client::*;
 
 async fn configured_client() -> anyhow::Result<GaloyClient> {
-    let api = env::var("GALOY_GRAPHQL_URI")?;
-    let api_key = env::var("GALOY_API_KEY")?;
+    let api = env::var("GALOY_GRAPHQL_URI").expect("GALOY_GRAPHQL_URI not set");
+    let api_key = env::var("GALOY_API_KEY").expect("GALOY_API_KEY not set");
 
     let client = GaloyClient::connect(GaloyClientConfig { api, api_key }).await?;
 
