@@ -6,19 +6,13 @@ mod transaction;
 
 use galoy_tracing::*;
 use graphql_client::{GraphQLQuery, Response};
-use reqwest::{
-    header::{HeaderValue},
-    Client as ReqwestClient, Method,
-};
+use reqwest::{header::HeaderValue, Client as ReqwestClient, Method};
 use tracing::instrument;
 
 pub use self::convert::PathString;
 use crate::error::*;
 use queries::*;
-pub use queries::{
-    stablesats_transactions_list::WalletCurrency as SettlementCurrency,
-    WalletId,
-};
+pub use queries::{stablesats_transactions_list::WalletCurrency as SettlementCurrency, WalletId};
 
 pub use config::*;
 pub use transaction::*;
