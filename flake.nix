@@ -41,6 +41,8 @@
           ytt
           jq
           tilt
+          gitMinimal
+          vendir
         ];
 
       devEnvVars = rec {
