@@ -29,7 +29,7 @@ test-in-ci:
 
 test-local: tilt-up-bg
 	DATABASE_URL=postgres://user:password@localhost:5440/pg cargo sqlx migrate run
-	GALOY_API_KEY=$$(cat .api-key.env | grep GALOY_API_KEY | cut -d'"' -f2) GALOY_GRAPHQL_URI="http://localhost:4455/graphql" PG_PORT=5440 SQLX_OFFLINE=true RUST_BACKTRACE=1 cargo nextest run --verbose --locked --no-fail-fast
+	bash -c 'source .api-key.env && GALOY_GRAPHQL_URI="http://localhost:4455/graphql" PG_PORT=5440 SQLX_OFFLINE=true RUST_BACKTRACE=1 cargo nextest run --verbose --locked --no-fail-fast'
 	
 tilt-up:
 	tilt up
