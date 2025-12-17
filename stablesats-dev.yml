@@ -3,7 +3,6 @@
 
 galoy:
   api: "http://localhost:4455/graphql"
-  phone_number: "+0123456"
 
 exchanges:
   okex:

@@ -116,8 +116,7 @@ jobs:
         OKEX_API_KEY: ((okex-creds.api_key))
         OKEX_PASSPHRASE: ((okex-creds.passphrase))
         OKEX_SECRET_KEY: ((okex-creds.secret_key))
-        GALOY_PHONE_NUMBER: ((galoy-creds.phone_number))
-        GALOY_PHONE_CODE: ((galoy-creds.auth_code))
+        GALOY_API_KEY: ((galoy-creds.api_key))
         REPO_PATH: stablesats-rs-integration-tests
         GOOGLE_CREDENTIALS: ((staging-gcp-creds.creds_json))
         SSH_PRIVATE_KEY: ((staging-ssh.ssh_private_key))
