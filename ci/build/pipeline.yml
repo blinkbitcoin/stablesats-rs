@@ -116,13 +116,13 @@ jobs:
         OKEX_API_KEY: ((okex-creds.api_key))
         OKEX_PASSPHRASE: ((okex-creds.passphrase))
         OKEX_SECRET_KEY: ((okex-creds.secret_key))
-        GALOY_API_KEY: ((galoy-creds.api_key))
+        GALOY_API_KEY: ((galoy-creds.galoy_api_key))
         REPO_PATH: stablesats-rs-integration-tests
         GOOGLE_CREDENTIALS: ((staging-gcp-creds.creds_json))
         SSH_PRIVATE_KEY: ((staging-ssh.ssh_private_key))
         SSH_PUB_KEY: ((staging-ssh.ssh_public_key))
         CMD: ./dev/bin/tilt-ci.sh
-        PARAMS_KEYS: OKEX_API_KEY OKEX_PASSPHRASE OKEX_SECRET_KEY GALOY_PHONE_NUMBER GALOY_PHONE_CODE
+        PARAMS_KEYS: OKEX_API_KEY OKEX_PASSPHRASE OKEX_SECRET_KEY GALOY_API_KEY
       run:
         path: pipeline-tasks/ci/tasks/run-on-nix-host.sh
     ensure:
