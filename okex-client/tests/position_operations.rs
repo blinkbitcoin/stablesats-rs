@@ -11,6 +11,35 @@ fn okex_client_config() -> OkexClientConfig {
     }
 }
 
+/// Closes any existing BTC-USD-SWAP positions and waits until the position is flat.
+/// This prevents "Insufficient BTC margin" errors caused by leftover positions
+/// from prior failed test runs.
+async fn ensure_no_open_positions(okex: &OkexClient) -> Result<(), Box<dyn std::error::Error>> {
+    let position = okex.get_position_in_signed_usd_cents().await?;
+    if position.usd_cents.abs() < dec!(50) {
+        println!("✅ No existing position to clean up");
+        return Ok(());
+    }
+
+    println!(
+        "⚠️  Found existing position: ${}, closing...",
+        position.usd_cents / dec!(100)
+    );
+    let close_id = ClientOrderId::new();
+    okex.close_positions(close_id).await?;
+
+    for i in 1..=60 {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let current = okex.get_position_in_signed_usd_cents().await?;
+        if current.usd_cents.abs() < dec!(50) {
+            println!("✅ Existing position closed after {i}s");
+            return Ok(());
+        }
+    }
+
+    Err("Failed to close existing position within 60s".into())
+}
+
 #[tokio::test]
 #[serial]
 async fn test_open_and_close_position() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,6 +47,9 @@ async fn test_open_and_close_position() -> Result<(), Box<dyn std::error::Error>
 
     let okex_cfg = okex_client_config();
     let okex = OkexClient::new(okex_cfg).await?;
+
+    // Step 0: Clean up any leftover positions from prior runs
+    ensure_no_open_positions(&okex).await?;
 
     // Step 1: Get initial position
     let initial_position = okex.get_position_in_signed_usd_cents().await?;
@@ -107,6 +139,9 @@ async fn test_manual_position_close() -> Result<(), Box<dyn std::error::Error>> 
 
     let okex_cfg = okex_client_config();
     let okex = OkexClient::new(okex_cfg).await?;
+
+    // Step 0: Clean up any leftover positions from prior runs
+    ensure_no_open_positions(&okex).await?;
 
     // Step 1: Open a position by placing a SELL order
     println!("🔄 Opening position with SELL order for 2 contracts...");
