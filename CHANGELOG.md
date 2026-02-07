@@ -1,3 +1,10 @@
+# [stablesats release v0.12.10](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.10)
+
+
+### Bug Fixes
+
+- Add GH_TOKEN for GitHub CLI auth, update time dep (#23)
+
 # [stablesats release v0.12.9](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.9)
 
 
