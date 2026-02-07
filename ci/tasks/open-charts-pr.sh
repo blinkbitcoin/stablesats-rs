@@ -26,7 +26,12 @@ Code diff contained in this image:
 https://github.com/blinkbitcoin/stablesats-rs/compare/${old_ref}...${ref}
 EOF
 
-export GH_TOKEN="$(ghtoken generate -b "${GH_APP_PRIVATE_KEY}" -i "${GH_APP_ID}" | jq -r '.token')"
+export GH_TOKEN="$(ghtoken generate -b "${GH_APP_PRIVATE_KEY}" -i "${GH_APP_ID}" | jq -er '.token')"
+
+if [ -z "${GH_TOKEN}" ] || [ "${GH_TOKEN}" = "null" ]; then
+  echo "Error: failed to obtain a valid GitHub token" >&2
+  exit 1
+fi
 
 gh pr close ${BOT_BRANCH} || true
 gh pr create \
