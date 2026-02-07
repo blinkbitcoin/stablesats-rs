@@ -1,3 +1,26 @@
+# [stablesats release v0.12.9](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.9)
+
+
+### Bug Fixes
+
+- Remove redundant target declaration, use galoy-creds.galoy_api_key value and update deps (#22)
+- Integration tests (#10)
+- Upgrade tracing-subscriber to 0.30.20 (#9)
+- Remove openssl dependency (#4)
+- Audit issues (#3)
+- Integration tests (#1)
+
+### Miscellaneous Tasks
+
+- Check git_branch to be main (#12)
+- Change ci branch name back to main (#11)
+- Update muslrust version (#6)
+- Update dockerfile ubuntu image (#5)
+
+### Refactor
+
+- Use api key in blink(galoy) client (#13)
+
 # [stablesats release v0.12.8](https://github.com/GaloyMoney/stablesats-rs/releases/tag/0.12.8)
 
 
