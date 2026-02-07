@@ -12,7 +12,8 @@ description = "Code shared between stablesats packages"
 fail-on-warnings = []
 
 [dependencies]
-# setting default-features = false to not include vulnerable time crate
+# pin time >= 0.3.47 to resolve RUSTSEC-2026-0009
+time = { workspace = true }
 chrono = { workspace = true }
 derive_builder = { workspace = true }
 futures = { workspace = true }
