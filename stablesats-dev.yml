@@ -24,7 +24,7 @@ okex_price_feed:
 
 tracing:
   host: "localhost"
-  port: 4318
+  port: 4317
   service_name: "stablesats-dev"
 
 user_trades:
