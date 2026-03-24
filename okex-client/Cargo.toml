@@ -23,6 +23,7 @@ lazy_static = { workspace = true }
 rust_decimal_macros = { workspace = true }
 rand = { workspace = true }
 tracing = { workspace = true }
+rustls = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

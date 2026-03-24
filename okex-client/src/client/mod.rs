@@ -25,6 +25,7 @@ pub use primitives::*;
 use governor::{
     clock::DefaultClock, state::keyed::DefaultKeyedStateStore, Jitter, Quota, RateLimiter,
 };
+use rustls::crypto::{ring::default_provider, CryptoProvider};
 use std::num::NonZeroU32;
 
 lazy_static::lazy_static! {
@@ -58,6 +59,8 @@ pub struct OkexClient {
 
 impl OkexClient {
     pub async fn new(config: OkexClientConfig) -> Result<Self, OkexClientError> {
+        let _ = CryptoProvider::install_default(default_provider());
+
         let client = Self {
             client: ReqwestClient::builder().use_rustls_tls().build()?,
             config,
