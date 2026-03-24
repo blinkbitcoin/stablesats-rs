@@ -1,5 +1,5 @@
-use stablesats::app;
 use rustls::crypto::{ring::default_provider, CryptoProvider};
+use stablesats::app;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
