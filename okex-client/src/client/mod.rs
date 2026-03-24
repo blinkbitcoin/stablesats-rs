@@ -108,10 +108,9 @@ impl OkexClient {
         Ok(leverage_info)
     }
 
-    pub async fn rate_limit_client(&self, key: &'static str) -> &ReqwestClient {
+    async fn rate_limit_client(&self, key: &'static str) {
         let jitter = Jitter::new(Duration::from_secs(1), Duration::from_secs(1));
         LIMITER.until_key_ready_with_jitter(&key, jitter).await;
-        &self.client
     }
 
     #[instrument(name = "okex_client.get_funding_deposit_address", skip(self), err)]
