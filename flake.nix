@@ -37,6 +37,7 @@
           cargo-audit
           cargo-watch
           postgresql
+          docker-client
           docker-compose
           ytt
           jq

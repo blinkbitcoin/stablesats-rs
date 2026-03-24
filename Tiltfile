@@ -76,4 +76,5 @@ for service in stablesats_services:
     dc_resource(service, labels = ["stablesats"])
 
 dc_resource('otel-agent', labels = ["otel"])
+dc_resource('stablesats', labels = ["stablesats"], auto_init=False)
 dc_resource('quickstart-test', labels = ['quickstart'], auto_init=False)
