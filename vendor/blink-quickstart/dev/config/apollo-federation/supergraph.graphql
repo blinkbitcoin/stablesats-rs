@@ -185,6 +185,7 @@ type ApiKey
   expiresAt: Timestamp
   readOnly: Boolean!
   scopes: [Scope!]!
+  limits: ApiKeyLimits!
 }
 
 input ApiKeyCreateInput
@@ -202,6 +203,26 @@ type ApiKeyCreatePayload
   apiKeySecret: String!
 }
 
+type ApiKeyLimits
+  @join__type(graph: API_KEYS)
+{
+  dailyLimitSats: Int
+  weeklyLimitSats: Int
+  monthlyLimitSats: Int
+  annualLimitSats: Int
+  dailySpentSats: Int!
+  weeklySpentSats: Int!
+  monthlySpentSats: Int!
+  annualSpentSats: Int!
+}
+
+input ApiKeyRemoveLimitInput
+  @join__type(graph: API_KEYS)
+{
+  id: ID!
+  limitTimeWindow: LimitTimeWindow!
+}
+
 input ApiKeyRevokeInput
   @join__type(graph: API_KEYS)
 {
@@ -209,6 +230,20 @@ input ApiKeyRevokeInput
 }
 
 type ApiKeyRevokePayload
+  @join__type(graph: API_KEYS)
+{
+  apiKey: ApiKey!
+}
+
+input ApiKeySetLimitInput
+  @join__type(graph: API_KEYS)
+{
+  id: ID!
+  limitTimeWindow: LimitTimeWindow!
+  limitSats: Int!
+}
+
+type ApiKeySetLimitPayload
   @join__type(graph: API_KEYS)
 {
   apiKey: ApiKey!
@@ -230,6 +265,13 @@ type AuthTokenPayload
   authToken: AuthToken
   errors: [Error!]!
   totpRequired: Boolean
+}
+
+type BlockInfo
+  @join__type(graph: PUBLIC)
+{
+  blockHash: String
+  blockHeight: Int
 }
 
 """
@@ -628,6 +670,8 @@ Provides global settings for the application which might have an impact for the 
 type Globals
   @join__type(graph: PUBLIC)
 {
+  """Current block height and block hash"""
+  blockInfo: BlockInfo
   buildInformation: BuildInformation!
   feesInformation: FeesInformation!
 
@@ -853,6 +897,15 @@ enum join__Graph {
 
 scalar Language
   @join__type(graph: PUBLIC)
+
+enum LimitTimeWindow
+  @join__type(graph: API_KEYS)
+{
+  DAILY @join__enumValue(graph: API_KEYS)
+  WEEKLY @join__enumValue(graph: API_KEYS)
+  MONTHLY @join__enumValue(graph: API_KEYS)
+  ANNUAL @join__enumValue(graph: API_KEYS)
+}
 
 scalar link__Import
 
@@ -1274,6 +1327,8 @@ type Mutation
 {
   apiKeyCreate(input: ApiKeyCreateInput!): ApiKeyCreatePayload! @join__field(graph: API_KEYS)
   apiKeyRevoke(input: ApiKeyRevokeInput!): ApiKeyRevokePayload! @join__field(graph: API_KEYS)
+  apiKeySetLimit(input: ApiKeySetLimitInput!): ApiKeySetLimitPayload! @join__field(graph: API_KEYS)
+  apiKeyRemoveLimit(input: ApiKeyRemoveLimitInput!): ApiKeySetLimitPayload! @join__field(graph: API_KEYS)
   statefulNotificationAcknowledge(input: StatefulNotificationAcknowledgeInput!): StatefulNotificationAcknowledgePayload! @join__field(graph: NOTIFICATIONS)
   accountDelete: AccountDeletePayload! @join__field(graph: PUBLIC)
   accountDisableNotificationCategory(input: AccountDisableNotificationCategoryInput!): AccountUpdateNotificationSettingsPayload! @join__field(graph: PUBLIC)
@@ -1577,12 +1632,14 @@ type OpenDeepLinkAction
   @join__type(graph: NOTIFICATIONS)
 {
   deepLink: String!
+  label: String
 }
 
 type OpenExternalLinkAction
   @join__type(graph: NOTIFICATIONS)
 {
   url: String!
+  label: String
 }
 
 """Information about pagination in a connection"""

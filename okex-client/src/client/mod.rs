@@ -111,7 +111,7 @@ impl OkexClient {
         Ok(leverage_info)
     }
 
-    async fn rate_limit_client(&self, key: &'static str) {
+    async fn wait_for_rate_limit(&self, key: &'static str) {
         let jitter = Jitter::new(Duration::from_secs(1), Duration::from_secs(1));
         LIMITER.until_key_ready_with_jitter(&key, jitter).await;
     }
@@ -611,7 +611,7 @@ impl OkexClient {
         rate_key: &'static str,
         request_path: &str,
     ) -> Result<reqwest::Response, OkexClientError> {
-        self.rate_limit_client(rate_key).await;
+        self.wait_for_rate_limit(rate_key).await;
         let headers = self.get_request_headers(request_path)?;
         let response = self
             .client
@@ -628,7 +628,7 @@ impl OkexClient {
         request_path: &str,
         request_body: &str,
     ) -> Result<reqwest::Response, OkexClientError> {
-        self.rate_limit_client(rate_key).await;
+        self.wait_for_rate_limit(rate_key).await;
         let headers = self.post_request_headers(request_path, request_body)?;
         let response = self
             .client
