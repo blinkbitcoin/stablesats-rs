@@ -9,6 +9,9 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 
 echo "    --> calculated repo root: ${REPO_ROOT}"
 
+echo "    --> cleaning up existing tilt resources to avoid port conflicts"
+tilt down --file "${REPO_ROOT}/Tiltfile" || true
+
 echo "    --> setting honeycomb env vars to fake values"
 export HONEYCOMB_API_KEY=your_honeycomb_key
 export HONEYCOMB_DATASET=your_dataset_name

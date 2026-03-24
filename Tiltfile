@@ -51,7 +51,7 @@ if is_ci:
   local_resource(
     name='integration-tests',
     labels = ['dev-setup'],
-    cmd='make test-local',
+    cmd='make test-local-ci',
     resource_deps = [
       "setup-stablesats-db","galoy","setup-dealer-api-key"
     ],
