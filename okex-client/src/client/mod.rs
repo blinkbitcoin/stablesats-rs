@@ -25,6 +25,7 @@ pub use primitives::*;
 use governor::{
     clock::DefaultClock, state::keyed::DefaultKeyedStateStore, Jitter, Quota, RateLimiter,
 };
+use rustls::crypto::{ring::default_provider, CryptoProvider};
 use std::num::NonZeroU32;
 
 lazy_static::lazy_static! {
@@ -58,23 +59,16 @@ pub struct OkexClient {
 
 impl OkexClient {
     pub async fn new(config: OkexClientConfig) -> Result<Self, OkexClientError> {
+        let _ = CryptoProvider::install_default(default_provider());
+
         let client = Self {
             client: ReqwestClient::builder().use_rustls_tls().build()?,
             config,
         };
         let path = "/api/v5/account/config";
-        let config_url = Self::url_for_path(path);
-        let headers = client.get_request_headers(path)?;
-
-        let response = client
-            .rate_limit_client(path)
-            .await
-            .get(config_url)
-            .headers(headers)
-            .send()
+        let config_data = client
+            .get_response_data_with_retry::<OkexAccountConfigurationData>(path, path)
             .await?;
-        let config_data =
-            Self::extract_response_data::<OkexAccountConfigurationData>(response).await?;
 
         if &config_data.pos_mode != "net_mode" {
             return Err(OkexClientError::MisconfiguredAccount(format!(
@@ -110,25 +104,16 @@ impl OkexClient {
 
     pub async fn leverage_info(&self) -> Result<OkexLeverageInfoData, OkexClientError> {
         let path = "/api/v5/account/leverage-info?instId=BTC-USD-SWAP&mgnMode=cross";
-        let config_url = Self::url_for_path(path);
-        let headers = self.get_request_headers(path)?;
-
-        let response = self
-            .rate_limit_client(path)
-            .await
-            .get(config_url)
-            .headers(headers)
-            .send()
+        let leverage_info = self
+            .get_response_data_with_retry::<OkexLeverageInfoData>(path, path)
             .await?;
-        let leverage_info = Self::extract_response_data::<OkexLeverageInfoData>(response).await?;
 
         Ok(leverage_info)
     }
 
-    pub async fn rate_limit_client(&self, key: &'static str) -> &ReqwestClient {
+    async fn wait_for_rate_limit(&self, key: &'static str) {
         let jitter = Jitter::new(Duration::from_secs(1), Duration::from_secs(1));
         LIMITER.until_key_ready_with_jitter(&key, jitter).await;
-        &self.client
     }
 
     #[instrument(name = "okex_client.get_funding_deposit_address", skip(self), err)]
@@ -140,18 +125,9 @@ impl OkexClient {
         }
 
         let request_path = "/api/v5/asset/deposit-address?ccy=BTC";
-
-        let headers = self.get_request_headers(request_path)?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .get(Self::url_for_path(request_path))
-            .headers(headers)
-            .send()
+        let addresses = self
+            .get_response_data_array_with_retry::<DepositAddressData>(request_path, request_path)
             .await?;
-
-        let addresses = Self::extract_response_data_array::<DepositAddressData>(response).await?;
 
         // Filter through results from above and find the selected BTC on-chain address that feeds the funding account
         let deposit_address = addresses.into_iter().find(|address_entry| {
@@ -174,17 +150,9 @@ impl OkexClient {
     pub async fn get_onchain_fees(&self) -> Result<OnchainFees, OkexClientError> {
         let request_path = "/api/v5/asset/currencies?ccy=BTC";
 
-        let headers = self.get_request_headers(request_path)?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .get(Self::url_for_path(request_path))
-            .headers(headers)
-            .send()
-            .await?;
-
-        let fees_data_resp = Self::extract_response_data::<OnchainFeesData>(response).await;
+        let fees_data_resp = self
+            .get_response_data_with_retry::<OnchainFeesData>(request_path, request_path)
+            .await;
         match fees_data_resp {
             Ok(fees_data) => Ok(OnchainFees {
                 ccy: fees_data.ccy,
@@ -220,18 +188,13 @@ impl OkexClient {
         let request_body = serde_json::to_string(&body)?;
 
         let request_path = "/api/v5/asset/transfer";
-        let headers = self.post_request_headers(request_path, request_body.as_str())?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .post(Self::url_for_path(request_path))
-            .headers(headers)
-            .body(request_body)
-            .send()
+        let transfer_data = self
+            .post_response_data_with_retry::<TransferData>(
+                request_path,
+                request_path,
+                &request_body,
+            )
             .await?;
-
-        let transfer_data = Self::extract_response_data::<TransferData>(response).await?;
         Ok(TransferId {
             value: transfer_data.trans_id,
         })
@@ -252,19 +215,13 @@ impl OkexClient {
         let request_body = serde_json::to_string(&body)?;
 
         let request_path = "/api/v5/asset/transfer";
-        LIMITER.until_key_ready(&request_path).await;
-        let headers = self.post_request_headers(request_path, request_body.as_str())?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .post(Self::url_for_path(request_path))
-            .headers(headers)
-            .body(request_body)
-            .send()
+        let transfer_data = self
+            .post_response_data_with_retry::<TransferData>(
+                request_path,
+                request_path,
+                &request_body,
+            )
             .await?;
-
-        let transfer_data = Self::extract_response_data::<TransferData>(response).await?;
         Ok(TransferId {
             value: transfer_data.trans_id,
         })
@@ -274,18 +231,9 @@ impl OkexClient {
     #[instrument(name = "okex_client.funding_account_balance", skip(self), err)]
     pub async fn funding_account_balance(&self) -> Result<AvailableBalance, OkexClientError> {
         let request_path = "/api/v5/asset/balances?ccy=BTC";
-
-        let headers = self.get_request_headers(request_path)?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .get(Self::url_for_path(request_path))
-            .headers(headers)
-            .send()
+        let funding_balance = self
+            .get_response_data_with_retry::<FundingBalanceData>(request_path, request_path)
             .await?;
-
-        let funding_balance = Self::extract_response_data::<FundingBalanceData>(response).await?;
 
         Ok(AvailableBalance {
             free_amt_in_btc: funding_balance.avail_bal,
@@ -297,18 +245,9 @@ impl OkexClient {
     #[instrument(name = "okex_client.trading_account_balance", skip(self), err)]
     pub async fn trading_account_balance(&self) -> Result<AvailableBalance, OkexClientError> {
         let request_path = "/api/v5/account/balance?ccy=BTC";
-
-        let headers = self.get_request_headers(request_path)?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .get(Self::url_for_path(request_path))
-            .headers(headers)
-            .send()
+        let trading_balance = self
+            .get_response_data_with_retry::<TradingBalanceData>(request_path, request_path)
             .await?;
-
-        let trading_balance = Self::extract_response_data::<TradingBalanceData>(response).await?;
 
         let mut free_amt_in_btc = Decimal::ZERO;
         let mut used_amt_in_btc = Decimal::ZERO;
@@ -334,18 +273,9 @@ impl OkexClient {
     ) -> Result<TransferState, OkexClientError> {
         let static_request_path = "/api/v5/asset/transfer-state?ccy=BTC&transId=";
         let request_path = format!("{static_request_path}{}", transfer_id.value);
-
-        let headers = self.get_request_headers(&request_path)?;
-
-        let response = self
-            .rate_limit_client(static_request_path)
-            .await
-            .get(Self::url_for_path(&request_path))
-            .headers(headers)
-            .send()
+        let state_data = self
+            .get_response_data_with_retry::<TransferStateData>(static_request_path, &request_path)
             .await?;
-
-        let state_data = Self::extract_response_data::<TransferStateData>(response).await?;
 
         Ok(TransferState {
             state: state_data.state,
@@ -360,18 +290,9 @@ impl OkexClient {
     ) -> Result<TransferState, OkexClientError> {
         let static_request_path = "/api/v5/asset/transfer-state?ccy=BTC&clientId=";
         let request_path = format!("{}{}", static_request_path, client_id.0);
-
-        let headers = self.get_request_headers(&request_path)?;
-
-        let response = self
-            .rate_limit_client(static_request_path)
-            .await
-            .get(Self::url_for_path(&request_path))
-            .headers(headers)
-            .send()
+        let state_data = self
+            .get_response_data_with_retry::<TransferStateData>(static_request_path, &request_path)
             .await?;
-
-        let state_data = Self::extract_response_data::<TransferStateData>(response).await?;
 
         Ok(TransferState {
             state: state_data.state,
@@ -399,18 +320,13 @@ impl OkexClient {
         let request_body = serde_json::to_string(&body)?;
 
         let request_path = "/api/v5/asset/withdrawal";
-        let headers = self.post_request_headers(request_path, request_body.as_str())?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .post(Self::url_for_path(request_path))
-            .headers(headers)
-            .body(request_body)
-            .send()
+        let withdraw_data = self
+            .post_response_data_with_retry::<WithdrawData>(
+                request_path,
+                request_path,
+                &request_body,
+            )
             .await?;
-
-        let withdraw_data = Self::extract_response_data::<WithdrawData>(response).await?;
 
         Ok(WithdrawId {
             value: withdraw_data.wd_id,
@@ -431,16 +347,9 @@ impl OkexClient {
     ) -> Result<DepositStatus, OkexClientError> {
         // 1. Get all deposit history
         let request_path = "/api/v5/asset/deposit-history";
-        let headers = self.get_request_headers(request_path)?;
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .get(Self::url_for_path(request_path))
-            .headers(headers)
-            .send()
+        let history = self
+            .get_response_data_array_with_retry::<DepositHistoryData>(request_path, request_path)
             .await?;
-
-        let history = Self::extract_response_data_array::<DepositHistoryData>(response).await?;
 
         // 2. Filter through results from above and find any entry that matches addr and amt_in_btc
         let deposit = history.into_iter().find(|deposit_entry| {
@@ -477,17 +386,12 @@ impl OkexClient {
     ) -> Result<WithdrawalStatus, OkexClientError> {
         let static_request_path = "/api/v5/asset/withdrawal-history?ccy=BTC&clientId=";
         let request_path = format!("{}{}", static_request_path, client_id.0);
-        let headers = self.get_request_headers(&request_path)?;
-        let response = self
-            .rate_limit_client(static_request_path)
-            .await
-            .get(Self::url_for_path(&request_path))
-            .headers(headers)
-            .send()
+        let withdrawal_data_option = self
+            .get_optional_response_data_with_retry::<WithdrawalHistoryData>(
+                static_request_path,
+                &request_path,
+            )
             .await?;
-
-        let withdrawal_data_option =
-            Self::extract_optional_response_data::<WithdrawalHistoryData>(response).await?;
 
         match withdrawal_data_option {
             Some(withdrawal_data) => {
@@ -534,18 +438,9 @@ impl OkexClient {
         let request_body = serde_json::to_string(&body)?;
 
         let request_path = "/api/v5/trade/order";
-        let headers = self.post_request_headers(request_path, &request_body)?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .post(Self::url_for_path(request_path))
-            .headers(headers)
-            .body(request_body)
-            .send()
+        let order_data = self
+            .post_response_data_with_retry::<OrderData>(request_path, request_path, &request_body)
             .await?;
-
-        let order_data = Self::extract_response_data::<OrderData>(response).await?;
         if order_data.ord_id.is_empty() && !order_data.s_code.is_empty() {
             return Err(OkexClientError::UnexpectedResponse {
                 msg: order_data.s_msg,
@@ -561,17 +456,9 @@ impl OkexClient {
     pub async fn order_details(&self, id: ClientOrderId) -> Result<OrderDetails, OkexClientError> {
         let static_request_path = "/api/v5/trade/order?instId=BTC-USD-SWAP&clOrdId=";
         let request_path = format!("{}{}", static_request_path, id.0);
-        let headers = self.get_request_headers(&request_path)?;
-
-        let response = self
-            .rate_limit_client(static_request_path)
-            .await
-            .get(Self::url_for_path(&request_path))
-            .headers(headers)
-            .send()
+        let mut details = self
+            .get_response_data_with_retry::<OrderDetails>(static_request_path, &request_path)
             .await?;
-
-        let mut details = Self::extract_response_data::<OrderDetails>(response).await?;
         if details.state == "filled" || details.state == "canceled" {
             details.complete = true;
         }
@@ -580,18 +467,9 @@ impl OkexClient {
 
     pub async fn get_last_price_in_usd_cents(&self) -> Result<LastPrice, OkexClientError> {
         let request_path = "/api/v5/market/ticker?instId=BTC-USD-SWAP";
-        let headers = self.get_request_headers(request_path)?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .get(Self::url_for_path(request_path))
-            .headers(headers)
-            .send()
-            .await?;
-
-        if let Some(LastPriceData { last, .. }) =
-            Self::extract_optional_response_data::<LastPriceData>(response).await?
+        if let Some(LastPriceData { last, .. }) = self
+            .get_optional_response_data_with_retry::<LastPriceData>(request_path, request_path)
+            .await?
         {
             Ok(LastPrice {
                 usd_cents: last * Decimal::ONE_HUNDRED,
@@ -609,22 +487,14 @@ impl OkexClient {
     )]
     pub async fn get_position_in_signed_usd_cents(&self) -> Result<PositionSize, OkexClientError> {
         let request_path = "/api/v5/account/positions?instId=BTC-USD-SWAP";
-        let headers = self.get_request_headers(request_path)?;
-
-        let response = self
-            .rate_limit_client(request_path)
-            .await
-            .get(Self::url_for_path(request_path))
-            .headers(headers)
-            .send()
-            .await?;
-
         if let Some(PositionData {
             notional_usd,
             pos,
             last,
             ..
-        }) = Self::extract_optional_response_data::<PositionData>(response).await?
+        }) = self
+            .get_optional_response_data_with_retry::<PositionData>(request_path, request_path)
+            .await?
         {
             let span = tracing::Span::current();
             span.record("notional_usd", tracing::field::display(&notional_usd));
@@ -690,18 +560,14 @@ impl OkexClient {
         let request_body = serde_json::to_string(&body)?;
 
         let request_path = "/api/v5/trade/close-position";
-        let headers = self.post_request_headers(request_path, &request_body)?;
-
-        let response = self
-            .rate_limit_client(request_path)
+        match self
+            .post_optional_response_data_with_retry::<ClosePositionData>(
+                request_path,
+                request_path,
+                &request_body,
+            )
             .await
-            .post(Self::url_for_path(request_path))
-            .headers(headers)
-            .body(request_body)
-            .send()
-            .await?;
-
-        match Self::extract_optional_response_data::<ClosePositionData>(response).await {
+        {
             Err(OkexClientError::UnexpectedResponse { msg, code })
                 if code == "51023"
                     || msg.starts_with("Position does not exist")
@@ -738,6 +604,129 @@ impl OkexClient {
             return Ok(data.and_then(|v| v.into_iter().next()));
         }
         Err(OkexClientError::from((msg, code)))
+    }
+
+    async fn send_get(
+        &self,
+        rate_key: &'static str,
+        request_path: &str,
+    ) -> Result<reqwest::Response, OkexClientError> {
+        self.wait_for_rate_limit(rate_key).await;
+        let headers = self.get_request_headers(request_path)?;
+        let response = self
+            .client
+            .get(Self::url_for_path(request_path))
+            .headers(headers)
+            .send()
+            .await?;
+        Ok(response)
+    }
+
+    async fn send_post(
+        &self,
+        rate_key: &'static str,
+        request_path: &str,
+        request_body: &str,
+    ) -> Result<reqwest::Response, OkexClientError> {
+        self.wait_for_rate_limit(rate_key).await;
+        let headers = self.post_request_headers(request_path, request_body)?;
+        let response = self
+            .client
+            .post(Self::url_for_path(request_path))
+            .headers(headers)
+            .body(request_body.to_owned())
+            .send()
+            .await?;
+        Ok(response)
+    }
+
+    fn is_timestamp_expired_error(err: &OkexClientError) -> bool {
+        matches!(
+            err,
+            OkexClientError::UnexpectedResponse { code, .. } if code == "50102"
+        )
+    }
+
+    async fn get_response_data_with_retry<T: serde::de::DeserializeOwned>(
+        &self,
+        rate_key: &'static str,
+        request_path: &str,
+    ) -> Result<T, OkexClientError> {
+        let response = self.send_get(rate_key, request_path).await?;
+        match Self::extract_response_data::<T>(response).await {
+            Err(err) if Self::is_timestamp_expired_error(&err) => {
+                tracing::warn!(request_path, "okx timestamp expired, retrying once");
+                let retry_response = self.send_get(rate_key, request_path).await?;
+                Self::extract_response_data::<T>(retry_response).await
+            }
+            res => res,
+        }
+    }
+
+    async fn get_optional_response_data_with_retry<T: serde::de::DeserializeOwned>(
+        &self,
+        rate_key: &'static str,
+        request_path: &str,
+    ) -> Result<Option<T>, OkexClientError> {
+        let response = self.send_get(rate_key, request_path).await?;
+        match Self::extract_optional_response_data::<T>(response).await {
+            Err(err) if Self::is_timestamp_expired_error(&err) => {
+                tracing::warn!(request_path, "okx timestamp expired, retrying once");
+                let retry_response = self.send_get(rate_key, request_path).await?;
+                Self::extract_optional_response_data::<T>(retry_response).await
+            }
+            res => res,
+        }
+    }
+
+    async fn get_response_data_array_with_retry<T: serde::de::DeserializeOwned>(
+        &self,
+        rate_key: &'static str,
+        request_path: &str,
+    ) -> Result<Vec<T>, OkexClientError> {
+        let response = self.send_get(rate_key, request_path).await?;
+        match Self::extract_response_data_array::<T>(response).await {
+            Err(err) if Self::is_timestamp_expired_error(&err) => {
+                tracing::warn!(request_path, "okx timestamp expired, retrying once");
+                let retry_response = self.send_get(rate_key, request_path).await?;
+                Self::extract_response_data_array::<T>(retry_response).await
+            }
+            res => res,
+        }
+    }
+
+    async fn post_response_data_with_retry<T: serde::de::DeserializeOwned>(
+        &self,
+        rate_key: &'static str,
+        request_path: &str,
+        request_body: &str,
+    ) -> Result<T, OkexClientError> {
+        let response = self.send_post(rate_key, request_path, request_body).await?;
+        match Self::extract_response_data::<T>(response).await {
+            Err(err) if Self::is_timestamp_expired_error(&err) => {
+                tracing::warn!(request_path, "okx timestamp expired, retrying once");
+                let retry_response = self.send_post(rate_key, request_path, request_body).await?;
+                Self::extract_response_data::<T>(retry_response).await
+            }
+            res => res,
+        }
+    }
+
+    async fn post_optional_response_data_with_retry<T: serde::de::DeserializeOwned>(
+        &self,
+        rate_key: &'static str,
+        request_path: &str,
+        request_body: &str,
+    ) -> Result<Option<T>, OkexClientError> {
+        let response = self.send_post(rate_key, request_path, request_body).await?;
+        match Self::extract_optional_response_data::<T>(response).await {
+            Err(err) if Self::is_timestamp_expired_error(&err) => {
+                tracing::warn!(request_path, "okx timestamp expired, retrying once");
+                let retry_response = self.send_post(rate_key, request_path, request_body).await?;
+                Self::extract_optional_response_data::<T>(retry_response).await
+            }
+            res => res,
+        }
     }
 
     /// Extracts the array of entries in the response data

@@ -99,7 +99,7 @@ services:
     - POSTGRES_PASSWORD=secret
     - POSTGRES_DB=hydra
   galoy:
-    image: us.gcr.io/galoy-org/galoy-api@sha256:e1fc850ff6ef0f11a289300320f307728c724718727d7738b6703febd86f41b5
+    image: us.gcr.io/galoy-org/galoy-api@sha256:1cfdb6eb51c54a975dcd37745ac46d9d3965a5cd4f7b87f96ac440db0490b032
     environment:
     - HELMREVISION=dev
     - NETWORK=regtest
@@ -158,7 +158,7 @@ services:
         aliases:
         - bats-tests
   trigger:
-    image: us.gcr.io/galoy-org/galoy-api-trigger@sha256:ec587a3a8354161d07bb1602d746be4b1e8d13ea6e0b75a61338d00c8cc78bd9
+    image: us.gcr.io/galoy-org/galoy-api-trigger@sha256:b211fec29aaec5da78663aed71fb1e3b7b00a852b5963d194e5aaa581b431d3b
     environment:
     - HELMREVISION=dev
     - NETWORK=regtest
@@ -201,7 +201,7 @@ services:
     depends_on:
     - galoy
   notifications:
-    image: us.gcr.io/galoy-org/galoy-notifications@sha256:511bd15563b22e3943e1581b51dc4dab615d02141ea7ca846eb067611b04a5cf
+    image: us.gcr.io/galoy-org/galoy-notifications@sha256:5eae5078c192c8f4aa3a9bed8524fa1ea8fac340a2d56374401acb9db0bdf6b0
     environment:
     - PG_CON=postgres://user:password@notifications-pg:5432/pg
     - PG_READ_CON=postgres://user:password@notifications-pg:5432/pg
@@ -236,6 +236,7 @@ services:
     - API_KEYS_CONFIG=/config/api-keys/api-keys.yml
     ports:
     - 5397:5397
+    - 6686:6686
     volumes:
     - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/api-keys/api-keys.yml:/config/api-keys/api-keys.yml
     depends_on:
@@ -269,7 +270,7 @@ services:
     environment:
     - MONGO_INITDB_DATABASE=galoy
   mongodb-migrate:
-    image: us.gcr.io/galoy-org/galoy-api-migrate@sha256:f03fdb64635adc9bbc8ded4ffebc396e892fa94e3986cedb6f17c338c94a16a2
+    image: us.gcr.io/galoy-org/galoy-api-migrate@sha256:aadc1b6c4aaec8789d995c2c29c157ae6ac54cb822b7ed20761a72f320c18d14
     depends_on:
     - mongodb
     environment:
@@ -326,13 +327,13 @@ services:
       timeout: 30s
       retries: 5
   bitcoind:
-    image: lncm/bitcoind:v27.0
+    image: lnliz/bitcoind:v28.3
     ports:
     - 18443:18443
     volumes:
     - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/bitcoind/bitcoin.conf:/data/.bitcoin/bitcoin.conf
   bitcoind-signer:
-    image: lncm/bitcoind:v27.0
+    image: lnliz/bitcoind:v28.3
     ports: []
     volumes:
     - ${HOST_PROJECT_PATH:-.}/${GALOY_QUICKSTART_PATH:-vendor/blink-quickstart}/dev/config/bitcoind/bitcoin.conf:/data/.bitcoin/bitcoin.conf
@@ -345,7 +346,7 @@ services:
     - |
       bitcoind -connect=bitcoind:18444
   lnd1:
-    image: lightninglabs/lnd:v0.18.5-beta
+    image: lightninglabs/lnd:v0.19.3-beta
     ports:
     - 10009:10009
     volumes:
@@ -368,7 +369,7 @@ services:
       cp /root/.lnd/admin.macaroon /root/.lnd/data/chain/bitcoin/regtest/admin.macaroon
       /bin/lnd
   lnd-outside-1:
-    image: lightninglabs/lnd:v0.18.5-beta
+    image: lightninglabs/lnd:v0.19.3-beta
     ports:
     - 10012:10009
     volumes:

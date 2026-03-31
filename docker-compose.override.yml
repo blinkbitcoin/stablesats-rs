@@ -22,11 +22,12 @@ services:
     ports:
       - "50001:50001"
 
-  # Removed - handled by Tilt resource instead
-  stablesats: !reset null
+  # Keep service present for compose dependency resolution.
+  # Tilt runs local stablesats via `stablesats-dev` and does not deploy this service.
+  stablesats: {}
 
-  # Even though the "!reset null" will remove the service, it does not remove the dependencies
-  # Remove stablesats dependency from services that depend on it
+  # Keep stablesats out of downstream startup dependencies for local Tilt runs.
+  # Local stablesats is provided by the `stablesats-dev` Tilt resource.
   galoy: 
     depends_on: !override
       - apollo-router

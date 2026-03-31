@@ -22,6 +22,7 @@ opentelemetry = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-http = { workspace = true }
+rustls = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

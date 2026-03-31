@@ -51,7 +51,7 @@ if is_ci:
   local_resource(
     name='integration-tests',
     labels = ['dev-setup'],
-    cmd='make test-local',
+    cmd='make test-local-ci',
     resource_deps = [
       "setup-stablesats-db","galoy","setup-dealer-api-key"
     ],
@@ -76,4 +76,5 @@ for service in stablesats_services:
     dc_resource(service, labels = ["stablesats"])
 
 dc_resource('otel-agent', labels = ["otel"])
+dc_resource('stablesats', labels = ["stablesats"], auto_init=False)
 dc_resource('quickstart-test', labels = ['quickstart'], auto_init=False)

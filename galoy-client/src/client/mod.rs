@@ -7,6 +7,7 @@ mod transaction;
 use galoy_tracing::*;
 use graphql_client::{GraphQLQuery, Response};
 use reqwest::{header::HeaderValue, Client as ReqwestClient, Method};
+use rustls::crypto::{ring::default_provider, CryptoProvider};
 use tracing::instrument;
 
 pub use self::convert::PathString;
@@ -33,6 +34,8 @@ impl GaloyClient {
 
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("X-API-KEY", HeaderValue::from_str(&config.api_key).unwrap());
+
+        let _ = CryptoProvider::install_default(default_provider());
 
         let client = ReqwestClient::builder()
             .use_rustls_tls()
