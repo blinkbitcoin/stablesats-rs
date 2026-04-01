@@ -1,3 +1,11 @@
+# [stablesats release v0.12.11](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.11)
+
+
+### Bug Fixes
+
+- Refresh request signatures after rate limiter delay (#27)
+- Use gRPC OTLP port 4317 for local dev config (#25)
+
 # [stablesats release v0.12.10](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.10)
 
 
