@@ -12,6 +12,7 @@ members = [
   "okex-client",
   "galoy-client",
   "bria-client",
+  "spark-client",
 ]
 
 [workspace.dependencies]
