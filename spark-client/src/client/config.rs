@@ -18,17 +18,12 @@ pub struct SparkClientConfig {
     pub page_size: u32,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SparkNetwork {
+    #[default]
     Mainnet,
     Regtest,
-}
-
-impl Default for SparkNetwork {
-    fn default() -> Self {
-        Self::Mainnet
-    }
 }
 
 impl From<SparkNetwork> for Network {
