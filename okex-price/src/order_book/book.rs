@@ -348,6 +348,18 @@ mod tests {
     }
 
     #[test]
+    fn deserializes_seq_ids_from_okx_json() -> anyhow::Result<()> {
+        let json = r#"{"arg":{"channel":"books","instId":"BTC-USD-SWAP"},
+            "action":"snapshot",
+            "data":[{"asks":[["62411.3","389.4","0","11"]],"bids":[["62411.2","66.3","0","3"]],
+                     "ts":"1700000000000","checksum":0,"prevSeqId":-1,"seqId":12345}]}"#;
+        let incr = OrderBookIncrement::try_from(serde_json::from_str::<OkexOrderBook>(json)?)?;
+        assert_eq!(incr.previous_sequence_id, Some(-1));
+        assert_eq!(incr.sequence_id, Some(12345));
+        Ok(())
+    }
+
+    #[test]
     fn merge_with_zero_checksums_accepts_sequence_resets() -> anyhow::Result<()> {
         let snapshot = load_order_book("snapshot")?;
 
