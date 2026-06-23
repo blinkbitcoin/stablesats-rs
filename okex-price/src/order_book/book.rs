@@ -93,8 +93,8 @@ pub struct CompleteOrderBook {
 impl TryFrom<OrderBookIncrement> for CompleteOrderBook {
     type Error = PriceFeedError;
     fn try_from(book: OrderBookIncrement) -> Result<Self, Self::Error> {
-        if book.new_checksum == 0 && book.sequence_id.is_none() {
-            return Err(PriceFeedError::SequenceValidation);
+        if book.new_checksum == 0 {
+            Self::verify_snapshot_sequence(&book)?;
         }
 
         let result = CompleteOrderBook {
@@ -125,13 +125,13 @@ impl CompleteOrderBook {
 
     #[allow(clippy::result_large_err)]
     fn try_merge(&self, increment: OrderBookIncrement) -> Result<Self, PriceFeedError> {
-        if increment.new_checksum == 0 {
-            self.verify_sequence(&increment)?;
-        }
-
         let new_book = match increment.action {
             OrderBookAction::Snapshot => CompleteOrderBook::try_from(increment)?,
             OrderBookAction::Update => {
+                if increment.new_checksum == 0 {
+                    self.verify_update_sequence(&increment)?;
+                }
+
                 let mut new_book = CompleteOrderBook {
                     timestamp: increment.timestamp,
                     checksum: increment.new_checksum,
@@ -192,14 +192,27 @@ impl CompleteOrderBook {
         crc32fast::hash(crc.as_bytes()) as i32
     }
 
-    fn verify_sequence(&self, increment: &OrderBookIncrement) -> Result<(), PriceFeedError> {
+    #[allow(clippy::result_large_err)]
+    fn verify_snapshot_sequence(book: &OrderBookIncrement) -> Result<(), PriceFeedError> {
+        match (
+            book.action.clone(),
+            book.previous_sequence_id,
+            book.sequence_id,
+        ) {
+            (OrderBookAction::Snapshot, Some(-1), Some(_)) => Ok(()),
+            _ => Err(PriceFeedError::SequenceValidation),
+        }
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn verify_update_sequence(&self, increment: &OrderBookIncrement) -> Result<(), PriceFeedError> {
         match (
             self.sequence_id,
             increment.previous_sequence_id,
             increment.sequence_id,
         ) {
-            (Some(current), Some(previous), Some(next)) => {
-                if current == previous && next >= previous {
+            (Some(current), Some(previous), Some(_)) => {
+                if current == previous {
                     Ok(())
                 } else {
                     Err(PriceFeedError::SequenceValidation)
@@ -330,6 +343,87 @@ mod tests {
         assert!(cache.update_order_book(incr_2.clone()).is_ok());
         assert_eq!(cache.latest().checksum, incr_2.new_checksum);
         assert_eq!(cache.latest().sequence_id, incr_2.sequence_id);
+
+        Ok(())
+    }
+
+    #[test]
+    fn merge_with_zero_checksums_accepts_sequence_resets() -> anyhow::Result<()> {
+        let snapshot = load_order_book("snapshot")?;
+
+        let mut order_book_incr = OrderBookIncrement::try_from(snapshot)?;
+        order_book_incr.new_checksum = 0;
+        order_book_incr.previous_sequence_id = Some(-1);
+        order_book_incr.sequence_id = Some(15);
+        let mut cache = OrderBookCache::new(order_book_incr.try_into()?);
+
+        let update_1 = load_order_book("update-1")?;
+        let mut incr_1 = OrderBookIncrement::try_from(update_1)?;
+        incr_1.new_checksum = 0;
+        incr_1.previous_sequence_id = Some(15);
+        incr_1.sequence_id = Some(3);
+        assert!(cache.update_order_book(incr_1.clone()).is_ok());
+        assert_eq!(cache.latest().sequence_id, incr_1.sequence_id);
+
+        let update_2 = load_order_book("update-2")?;
+        let mut incr_2 = OrderBookIncrement::try_from(update_2)?;
+        incr_2.new_checksum = 0;
+        incr_2.previous_sequence_id = Some(3);
+        incr_2.sequence_id = Some(5);
+        assert!(cache.update_order_book(incr_2.clone()).is_ok());
+        assert_eq!(cache.latest().sequence_id, incr_2.sequence_id);
+
+        Ok(())
+    }
+
+    #[test]
+    fn zero_checksum_initial_book_must_be_snapshot() -> anyhow::Result<()> {
+        let update_1 = load_order_book("update-1")?;
+
+        let mut incr_1 = OrderBookIncrement::try_from(update_1)?;
+        incr_1.new_checksum = 0;
+        incr_1.previous_sequence_id = Some(10);
+        incr_1.sequence_id = Some(11);
+        assert!(matches!(
+            CompleteOrderBook::try_from(incr_1),
+            Err(PriceFeedError::SequenceValidation)
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn zero_checksum_initial_snapshot_requires_initial_previous_sequence() -> anyhow::Result<()> {
+        let snapshot = load_order_book("snapshot")?;
+
+        let mut order_book_incr = OrderBookIncrement::try_from(snapshot)?;
+        order_book_incr.new_checksum = 0;
+        order_book_incr.previous_sequence_id = Some(10);
+        order_book_incr.sequence_id = Some(11);
+        assert!(matches!(
+            CompleteOrderBook::try_from(order_book_incr),
+            Err(PriceFeedError::SequenceValidation)
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn zero_checksum_snapshot_replaces_cached_book() -> anyhow::Result<()> {
+        let snapshot = load_order_book("snapshot")?;
+
+        let mut order_book_incr = OrderBookIncrement::try_from(snapshot.clone())?;
+        order_book_incr.new_checksum = 0;
+        order_book_incr.previous_sequence_id = Some(-1);
+        order_book_incr.sequence_id = Some(10);
+        let mut cache = OrderBookCache::new(order_book_incr.try_into()?);
+
+        let mut replacement = OrderBookIncrement::try_from(snapshot)?;
+        replacement.new_checksum = 0;
+        replacement.previous_sequence_id = Some(-1);
+        replacement.sequence_id = Some(20);
+        assert!(cache.update_order_book(replacement.clone()).is_ok());
+        assert_eq!(cache.latest().sequence_id, replacement.sequence_id);
 
         Ok(())
     }
