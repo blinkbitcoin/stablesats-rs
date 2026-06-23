@@ -35,6 +35,8 @@ pub enum PriceFeedError {
     InitialFullLoad,
     #[error("PriceFeedError: CheckSumValidation - Can't validate accuracy of depth data")]
     CheckSumValidation,
+    #[error("PriceFeedError: SequenceValidation - order book sequence discontinuity")]
+    SequenceValidation,
     #[error("PriceFeedError: StreamEnded - Stream ended unexpectedly")]
     StreamEnded,
     #[error("PriceFeedError: StreamStalled - Stream ended unexpectedly")]
