@@ -54,6 +54,8 @@ impl TryFrom<OkexOrderBook> for OrderBookIncrement {
             bids: bids_map,
             timestamp: TimeStamp::try_from(ts)?,
             new_checksum: *checksum,
+            previous_sequence_id: okex_order_book_data.prev_seq_id,
+            sequence_id: okex_order_book_data.seq_id,
             action,
         };
         Ok(inner)
