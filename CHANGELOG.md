@@ -1,3 +1,10 @@
+# [stablesats release v0.12.12](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.12)
+
+
+### Bug Fixes
+
+- Validate OKX order books by sequence when checksum is zero (#30)
+
 # [stablesats release v0.12.11](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.11)
 
 
