@@ -36,6 +36,7 @@
           cargo-nextest
           cargo-audit
           cargo-watch
+          protobuf
           postgresql
           docker-client
           docker-compose
