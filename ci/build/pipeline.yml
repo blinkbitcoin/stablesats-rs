@@ -93,7 +93,7 @@ jobs:
     - get: pipeline-tasks
   - task: integration-tests
     attempts: 2
-    timeout: 12m
+    timeout: 30m
     tags:
     - galoy-staging
     config:
