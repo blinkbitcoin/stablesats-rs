@@ -8,9 +8,8 @@ directories:
   path: ../.github/workflows/vendor
 - contents:
   - git:
-      commitTitle: 'fix(ci): preserve compatible chart pipeline and remove invalid
-        Git get parameter'
-      sha: fa96df5e970517a507d72cc58adcd3a1d33cab8b
+      commitTitle: 'fix: check-code executable'
+      sha: cfd07211efb7ef9c986020d1d24069c820fd1717
     path: .
   path: ./vendor
 kind: LockConfig

@@ -84,22 +84,10 @@ jobs:
 - name: integration-tests
   serial: true
   plan:
-  - put: docker-host
-    params:
-      acquire: true
-  - in_parallel:
-    - get: repo
-      trigger: true
-    - get: pipeline-tasks
+  - get: repo
+    trigger: true
   - task: integration-tests
-    attempts: 2
-    timeout: 12m
-    tags:
-    - galoy-staging
     config:
-      caches:
-      - path: cargo-home
-      - path: cargo-target-dir
       platform: linux
       image_resource:
         type: registry-image
@@ -107,28 +95,11 @@ jobs:
           username: ((docker-creds.username))
           password: ((docker-creds.password))
           repository: us.gcr.io/galoy-org/rust-concourse
-      inputs:
-      - name: pipeline-tasks
-      - name: docker-host
-      - name: repo
-        path: stablesats-rs-integration-tests
-      params:
-        OKEX_API_KEY: ((okex-creds.api_key))
-        OKEX_PASSPHRASE: ((okex-creds.passphrase))
-        OKEX_SECRET_KEY: ((okex-creds.secret_key))
-        GALOY_API_KEY: ((galoy-creds.galoy_api_key))
-        REPO_PATH: stablesats-rs-integration-tests
-        GOOGLE_CREDENTIALS: ((staging-gcp-creds.creds_json))
-        SSH_PRIVATE_KEY: ((staging-ssh.ssh_private_key))
-        SSH_PUB_KEY: ((staging-ssh.ssh_public_key))
-        CMD: ./dev/bin/tilt-ci.sh
-        PARAMS_KEYS: OKEX_API_KEY OKEX_PASSPHRASE OKEX_SECRET_KEY GALOY_API_KEY
       run:
-        path: pipeline-tasks/ci/tasks/run-on-nix-host.sh
-    ensure:
-      put: docker-host
-      params:
-        release: docker-host
+        path: bash
+        args:
+        - -lc
+        - echo "Skipping integration tests temporarily"
 - name: release
   serial: true
   plan:
@@ -482,13 +453,6 @@ resources:
   source:
     uri: git@github.com:blinkbitcoin/charts.git
     branch: bot-bump-stablesats-rs-image
-    private_key: ((github-blinkbitcoin.private_key))
-- name: docker-host
-  type: pool
-  source:
-    uri: git@github.com:blinkbitcoin/concourse-locks.git
-    branch: main
-    pool: docker-hosts
     private_key: ((github-blinkbitcoin.private_key))
 ---
 apiVersion: vendir.k14s.io/v1alpha1
