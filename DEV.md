@@ -92,6 +92,20 @@ Example
 $ cargo test -p okex-price
 ```
 
+The position-operation and hedging tests use a separate local HTTP exchange
+fixture for each test. They exercise the real OKX client request and response
+handling without a funded demo account. The `okex-client` `test-support` feature
+is enabled by development dependencies only; its endpoint override cannot be
+loaded from application configuration. Tests in `okex-client/tests/client.rs`
+still provide the external OKX demo API checks.
+
+Run the position and collateral tests without exchange credentials:
+```bash
+nix develop -c cargo test -p okex-client --test position_operations --locked
+```
+The hedging test also needs the local database, Galoy configuration and Bria
+connection provided by `make test-in-ci`, and has a two-minute deadline.
+
 ## Database Configuration
 
 The stablesats project uses different environment variables for database connections depending on the context:

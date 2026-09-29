@@ -69,6 +69,13 @@ async fn health_check_error(
 }
 
 pub async fn run(checkers: HashMap<&'static str, HealthChecker>) -> anyhow::Result<()> {
+    run_at(SocketAddr::from(([0, 0, 0, 0], 8080)), checkers).await
+}
+
+async fn run_at(
+    addr: SocketAddr,
+    checkers: HashMap<&'static str, HealthChecker>,
+) -> anyhow::Result<()> {
     let checkers = Arc::new(checkers);
     let app = Router::new()
         .route(
@@ -107,9 +114,51 @@ pub async fn run(checkers: HashMap<&'static str, HealthChecker>) -> anyhow::Resu
             }),
         );
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .context("Bind health server")
+        .context("Bind health server")?;
+    axum::serve(listener, app)
+        .await
+        .context("Serve health server")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn serves_health_routes_and_reports_bind_errors() -> anyhow::Result<()> {
+        let reserved = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let addr = reserved.local_addr()?;
+        let error = run_at(addr, HashMap::new()).await.unwrap_err();
+        assert_eq!(error.to_string(), "Bind health server");
+        drop(reserved);
+
+        let server = tokio::spawn(run_at(addr, HashMap::new()));
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            for route in ["live", "startup", "ready"] {
+                let mut stream = loop {
+                    match tokio::net::TcpStream::connect(addr).await {
+                        Ok(stream) => break stream,
+                        Err(_) => tokio::task::yield_now().await,
+                    }
+                };
+                stream
+                    .write_all(
+                        format!("GET /health/{route} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                            .as_bytes(),
+                    )
+                    .await?;
+                let mut response = String::new();
+                stream.read_to_string(&mut response).await?;
+                assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+            }
+            anyhow::Ok(())
+        })
+        .await;
+        server.abort();
+        result??;
+        Ok(())
+    }
 }

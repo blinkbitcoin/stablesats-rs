@@ -16,6 +16,7 @@ async fn configured_okex_client() -> anyhow::Result<OkexClient> {
         passphrase,
         secret_key,
         simulated: true,
+        ..Default::default()
     })
     .await?;
 
@@ -58,6 +59,7 @@ async fn client_is_missing_header() -> anyhow::Result<()> {
         passphrase: "".to_string(),
         secret_key: "".to_string(),
         simulated: true,
+        ..Default::default()
     })
     .await;
 

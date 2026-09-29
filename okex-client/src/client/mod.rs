@@ -49,6 +49,10 @@ pub struct OkexClientConfig {
     pub secret_key: String,
     #[serde(default)]
     pub simulated: bool,
+    /// In-process HTTP fixture endpoint; never loaded from application configuration.
+    #[cfg(feature = "test-support")]
+    #[serde(skip)]
+    pub test_api: Option<String>,
 }
 
 #[derive(Clone)]
@@ -112,6 +116,12 @@ impl OkexClient {
     }
 
     async fn wait_for_rate_limit(&self, key: &'static str) {
+        // The in-process fixture has no exchange quota. Keeping the shared limiter
+        // here lets the polling loop starve the test's position checks.
+        #[cfg(feature = "test-support")]
+        if self.config.test_api.is_some() {
+            return;
+        }
         let jitter = Jitter::new(Duration::from_secs(1), Duration::from_secs(1));
         LIMITER.until_key_ready_with_jitter(&key, jitter).await;
     }
@@ -615,7 +625,7 @@ impl OkexClient {
         let headers = self.get_request_headers(request_path)?;
         let response = self
             .client
-            .get(Self::url_for_path(request_path))
+            .get(self.url_for_path(request_path))
             .headers(headers)
             .send()
             .await?;
@@ -632,7 +642,7 @@ impl OkexClient {
         let headers = self.post_request_headers(request_path, request_body)?;
         let response = self
             .client
-            .post(Self::url_for_path(request_path))
+            .post(self.url_for_path(request_path))
             .headers(headers)
             .body(request_body.to_owned())
             .send()
@@ -749,7 +759,11 @@ impl OkexClient {
         BASE64.encode(signature.as_ref())
     }
 
-    fn url_for_path(path: &str) -> String {
+    fn url_for_path(&self, path: &str) -> String {
+        #[cfg(feature = "test-support")]
+        if let Some(api) = &self.config.test_api {
+            return format!("{api}{path}");
+        }
         format!("{OKEX_API_URL}{path}")
     }
 
@@ -801,5 +815,27 @@ impl OkexClient {
         );
 
         Ok(headers)
+    }
+}
+
+#[cfg(test)]
+mod endpoint_tests {
+    use super::*;
+
+    #[test]
+    fn application_configuration_cannot_override_test_endpoint() {
+        let _ = CryptoProvider::install_default(default_provider());
+        let config: OkexClientConfig = serde_json::from_value(serde_json::json!({
+            "test_api": "http://127.0.0.1:1"
+        }))
+        .unwrap();
+        let client = OkexClient {
+            client: ReqwestClient::new(),
+            config,
+        };
+        assert_eq!(
+            client.url_for_path("/api/test"),
+            "https://www.okx.com/api/test"
+        );
     }
 }
