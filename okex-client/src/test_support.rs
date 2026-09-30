@@ -1,10 +1,15 @@
+use crate::OkexClientConfig;
 use axum::{
-    extract::{Query, State},
-    http::HeaderMap,
+    body::{to_bytes, Body},
+    extract::{Query, Request, State},
+    http::StatusCode,
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
-use okex_client::OkexClientConfig;
+use data_encoding::BASE64;
+use ring::hmac;
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Arc};
@@ -70,6 +75,7 @@ impl Exchange {
             .route("/api/v5/asset/transfer-state", get(transfer_state))
             .route("/api/v5/trade/order", post(order).get(order_details))
             .route("/api/v5/trade/close-position", post(close))
+            .route_layer(middleware::from_fn(authenticate))
             .with_state(Arc::new(Mutex::new(Account::default())));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -98,9 +104,91 @@ fn response(data: Value) -> Json<Value> {
     Json(json!({"code": "0", "msg": "", "data": data}))
 }
 
-async fn account_config(headers: HeaderMap) -> Json<Value> {
-    assert_eq!(headers["x-simulated-trading"], "1");
-    assert_eq!(headers["ok-access-key"], "test-key");
+async fn authenticate(request: Request, next: Next) -> Result<Response, StatusCode> {
+    let (parts, body) = request.into_parts();
+    let header = |name| {
+        parts
+            .headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+    };
+    for (name, expected) in [
+        ("x-simulated-trading", "1"),
+        ("ok-access-key", "test-key"),
+        ("ok-access-passphrase", "test-passphrase"),
+    ] {
+        if header(name) != Some(expected) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    }
+    let timestamp = header("ok-access-timestamp").ok_or(StatusCode::UNAUTHORIZED)?;
+    let parsed =
+        chrono::DateTime::parse_from_rfc3339(timestamp).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    if (chrono::Utc::now() - parsed.with_timezone(&chrono::Utc)).abs()
+        > chrono::Duration::seconds(30)
+    {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let signature = BASE64
+        .decode(
+            header("ok-access-sign")
+                .ok_or(StatusCode::UNAUTHORIZED)?
+                .as_bytes(),
+        )
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let body = to_bytes(body, 64 * 1024)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let mut message = format!("{timestamp}{}{}", parts.method, parts.uri).into_bytes();
+    message.extend_from_slice(&body);
+    hmac::verify(
+        &hmac::Key::new(hmac::HMAC_SHA256, b"test-secret"),
+        &message,
+        &signature,
+    )
+    .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let Query(query) = Query::<HashMap<String, String>>::try_from_uri(&parts.uri)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let expected: &[(&str, &str)] = match parts.uri.path() {
+        "/api/v5/account/leverage-info" => &[("instId", "BTC-USD-SWAP"), ("mgnMode", "cross")],
+        "/api/v5/account/positions" | "/api/v5/market/ticker" => &[("instId", "BTC-USD-SWAP")],
+        "/api/v5/asset/balances" | "/api/v5/account/balance" | "/api/v5/asset/currencies" => {
+            &[("ccy", "BTC")]
+        }
+        "/api/v5/trade/order" if parts.method == axum::http::Method::GET => &[
+            ("instId", "BTC-USD-SWAP"),
+            (
+                "clOrdId",
+                query
+                    .get("clOrdId")
+                    .filter(|id| !id.is_empty())
+                    .ok_or(StatusCode::BAD_REQUEST)?,
+            ),
+        ],
+        "/api/v5/asset/transfer-state" => &[
+            ("ccy", "BTC"),
+            (
+                "clientId",
+                query
+                    .get("clientId")
+                    .filter(|id| !id.is_empty())
+                    .ok_or(StatusCode::BAD_REQUEST)?,
+            ),
+        ],
+        _ => &[],
+    };
+    if query.len() != expected.len()
+        || expected
+            .iter()
+            .any(|(key, value)| query.get(*key).map(String::as_str) != Some(*value))
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(next.run(Request::from_parts(parts, Body::from(body))).await)
+}
+
+async fn account_config() -> Json<Value> {
     response(json!([{
         "acctLv": "2", "autoLoan": false, "ctIsoMode": "automatic",
         "greeksType": "PA", "level": "Lv1", "levelTmp": "",

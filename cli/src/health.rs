@@ -76,8 +76,17 @@ async fn run_at(
     addr: SocketAddr,
     checkers: HashMap<&'static str, HealthChecker>,
 ) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .context("Bind health server")?;
+    axum::serve(listener, health_router(checkers))
+        .await
+        .context("Serve health server")
+}
+
+fn health_router(checkers: HashMap<&'static str, HealthChecker>) -> Router {
     let checkers = Arc::new(checkers);
-    let app = Router::new()
+    Router::new()
         .route(
             "/health/live",
             get({
@@ -112,20 +121,115 @@ async fn run_at(
                     }
                 }
             }),
-        );
-
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .context("Bind health server")?;
-    axum::serve(listener, app)
-        .await
-        .context("Serve health server")
+        )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tower::ServiceExt;
+
+    async fn request_status(app: Router, route: &str) -> StatusCode {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            app.oneshot(
+                axum::http::Request::builder()
+                    .uri(format!("/health/{route}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .status()
+    }
+
+    #[tokio::test]
+    async fn health_routes_handle_failures_recovery_and_sticky_readiness() {
+        let (checker, mut trigger) = futures::channel::mpsc::unbounded();
+        let mode = Arc::new(AtomicUsize::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let worker_mode = mode.clone();
+        let worker_calls = calls.clone();
+        let worker = tokio::spawn(async move {
+            let mut pending = Vec::new();
+            while let Some(response) = trigger.next().await {
+                let response: futures::channel::oneshot::Sender<Result<(), String>> = response;
+                worker_calls.fetch_add(1, Ordering::SeqCst);
+                match worker_mode.load(Ordering::SeqCst) {
+                    0 => {
+                        let _ = response.send(Err("unhealthy".into()));
+                    }
+                    1 => {
+                        let _ = response.send(Ok(()));
+                    }
+                    2 => drop(response),
+                    3 => pending.push(response), // Keep the sender alive to exercise timeout.
+                    _ => unreachable!(),
+                }
+            }
+        });
+        let app = health_router(HashMap::from([("test", checker)]));
+        for route in ["ready", "startup", "live", "live", "live", "live", "live"] {
+            assert_eq!(
+                request_status(app.clone(), route).await,
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+        }
+        mode.store(1, Ordering::SeqCst);
+        for route in ["live", "startup", "ready"] {
+            assert_eq!(request_status(app.clone(), route).await, StatusCode::OK);
+        }
+        for failure_mode in [0, 2, 3] {
+            mode.store(failure_mode, Ordering::SeqCst);
+            assert_eq!(
+                request_status(app.clone(), "live").await,
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+            let calls_before = calls.load(Ordering::SeqCst);
+            assert_eq!(request_status(app.clone(), "ready").await, StatusCode::OK);
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                calls_before,
+                "readiness must stay successful without rechecking"
+            );
+        }
+        worker.abort();
+        worker.await.unwrap_err();
+        assert_eq!(
+            request_status(app.clone(), "live").await,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(request_status(app, "ready").await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn successful_check_resets_consecutive_errors() {
+        let (checker, mut trigger) = futures::channel::mpsc::unbounded();
+        let worker = tokio::spawn(async move {
+            for outcome in [Err("failed".into()), Err("failed".into()), Ok(())] {
+                let response: futures::channel::oneshot::Sender<Result<(), String>> =
+                    trigger.next().await.unwrap();
+                response.send(outcome).unwrap();
+            }
+        });
+        let checkers = Arc::new(HashMap::from([("test", checker)]));
+        let errors = Arc::new(RwLock::new(0));
+        for expected in [1, 2] {
+            assert_eq!(
+                health_check(checkers.clone(), errors.clone()).await,
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+            assert_eq!(*errors.read().await, expected);
+        }
+        assert_eq!(health_check(checkers, errors.clone()).await, StatusCode::OK);
+        assert_eq!(*errors.read().await, 0);
+        worker.await.unwrap();
+    }
 
     #[tokio::test]
     async fn serves_health_routes_and_reports_bind_errors() -> anyhow::Result<()> {

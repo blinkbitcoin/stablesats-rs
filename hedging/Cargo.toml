@@ -37,6 +37,5 @@ h2 = { workspace = true }
 
 [dev-dependencies]
 okex-client = { path = "../okex-client", features = ["test-support"] }
-axum = { workspace = true }
 anyhow = { workspace = true }
 serial_test = { workspace = true }

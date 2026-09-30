@@ -95,8 +95,10 @@ $ cargo test -p okex-price
 The position-operation and hedging tests use a separate local HTTP exchange
 fixture for each test. They exercise the real OKX client request and response
 handling without a funded demo account. The `okex-client` `test-support` feature
-is enabled by development dependencies only; its endpoint override cannot be
-loaded from application configuration. Tests in `okex-client/tests/client.rs`
+is enabled by test dependencies and by builds using `--all-features`, including
+the macOS release build. The endpoint override cannot be loaded from application
+configuration and is currently assigned only by test fixtures. The reusable
+fixture is exposed as `okex_client::test_support`. Tests in `okex-client/tests/client.rs`
 still provide the external OKX demo API checks.
 
 Run the position and collateral tests without exchange credentials:

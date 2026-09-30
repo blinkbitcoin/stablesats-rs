@@ -4,3 +4,6 @@
 mod client;
 
 pub use client::*;
+
+#[cfg(feature = "test-support")]
+pub mod test_support;

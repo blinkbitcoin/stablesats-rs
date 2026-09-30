@@ -2,11 +2,19 @@ use okex_client::*;
 use rust_decimal_macros::dec;
 use serial_test::serial;
 
-mod support;
+use okex_client::test_support as support;
 
 #[tokio::test]
 #[serial]
 async fn test_open_and_close_position() -> Result<(), Box<dyn std::error::Error>> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        test_open_and_close_position_body(),
+    )
+    .await?
+}
+
+async fn test_open_and_close_position_body() -> Result<(), Box<dyn std::error::Error>> {
     println!("🎯 Testing OKX position open and close operations");
 
     let exchange = support::Exchange::start().await;
@@ -105,6 +113,14 @@ async fn test_open_and_close_position() -> Result<(), Box<dyn std::error::Error>
 #[tokio::test]
 #[serial]
 async fn test_manual_position_close() -> Result<(), Box<dyn std::error::Error>> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        test_manual_position_close_body(),
+    )
+    .await?
+}
+
+async fn test_manual_position_close_body() -> Result<(), Box<dyn std::error::Error>> {
     println!("🎯 Testing manual OKX position close with opposite order");
 
     let exchange = support::Exchange::start().await;
@@ -189,6 +205,14 @@ async fn test_manual_position_close() -> Result<(), Box<dyn std::error::Error>> 
 
 #[tokio::test]
 async fn transfers_collateral_between_accounts() -> anyhow::Result<()> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        transfers_collateral_between_accounts_body(),
+    )
+    .await?
+}
+
+async fn transfers_collateral_between_accounts_body() -> anyhow::Result<()> {
     let exchange = support::Exchange::start().await;
     let okex = OkexClient::new(exchange.config()).await?;
     okex.check_leverage(dec!(4)).await?;

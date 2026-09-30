@@ -1222,7 +1222,6 @@ name = "hedging"
 version = "0.12.13-dev"
 dependencies = [
  "anyhow",
- "axum",
  "bria-client",
  "chrono",
  "futures",
@@ -3515,6 +3514,7 @@ dependencies = [
  "stablesats-shared",
  "tokio",
  "tonic",
+ "tower 0.5.3",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",

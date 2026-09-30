@@ -13,8 +13,7 @@ use shared::pubsub::*;
 use hedging::*;
 use shared::test_utils::DatabaseTestFixture;
 
-#[path = "../../okex-client/tests/support/mod.rs"]
-mod support;
+use okex_client::test_support as support;
 
 fn galoy_client_config() -> GaloyClientConfig {
     let api = env::var("GALOY_GRAPHQL_URI").expect("GALOY_GRAPHQL_URI not set");
