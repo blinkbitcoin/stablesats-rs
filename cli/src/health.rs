@@ -208,6 +208,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fifth_consecutive_error_records_error_severity() {
+        use tracing::instrument::WithSubscriber;
+        use tracing_subscriber::{
+            layer::{Context, SubscriberExt},
+            Layer,
+        };
+        #[derive(Clone, Default)]
+        struct Levels(Arc<std::sync::Mutex<Vec<String>>>);
+        impl tracing::field::Visit for Levels {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if field.name() == "error.level" {
+                    self.0.lock().unwrap().push(format!("{value:?}"));
+                }
+            }
+        }
+        impl<S: tracing::Subscriber> Layer<S> for Levels {
+            fn on_record(
+                &self,
+                _: &tracing::span::Id,
+                values: &tracing::span::Record<'_>,
+                _: Context<'_, S>,
+            ) {
+                values.record(&mut self.clone());
+            }
+        }
+        let levels = Levels::default();
+        let subscriber = tracing_subscriber::registry().with(levels.clone());
+        async {
+            let errors = Arc::new(RwLock::new(0));
+            for _ in 0..5 {
+                health_check_error("test", errors.clone(), "failed").await;
+            }
+            assert_eq!(
+                health_check(Arc::new(HashMap::new()), errors.clone()).await,
+                StatusCode::OK
+            );
+            health_check_error("test", errors, "failed again").await;
+        }
+        .with_subscriber(subscriber)
+        .await;
+        assert_eq!(
+            *levels.0.lock().unwrap(),
+            ["WARN", "WARN", "WARN", "WARN", "ERROR", "WARN"]
+        );
+    }
+
+    #[tokio::test]
     async fn successful_check_resets_consecutive_errors() {
         let (checker, mut trigger) = futures::channel::mpsc::unbounded();
         let worker = tokio::spawn(async move {

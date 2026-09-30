@@ -45,4 +45,4 @@ serde_json = { workspace = true }
 rustls = { workspace = true }
 
 [dev-dependencies]
-tower = { version = "0.5", features = ["util"] }
+tower = { workspace = true }

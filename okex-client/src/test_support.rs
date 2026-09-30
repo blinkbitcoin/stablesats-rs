@@ -1,10 +1,10 @@
-use crate::OkexClientConfig;
+use crate::{OkexClient, OkexClientConfig, OkexClientError};
+pub use axum::http::StatusCode;
 use axum::{
     body::{to_bytes, Body},
     extract::{Query, Request, State},
-    http::StatusCode,
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -12,13 +12,17 @@ use data_encoding::BASE64;
 use ring::hmac;
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 
 /// A separate exchange per test. Requests still use the real HTTP client and codecs.
 pub struct Exchange {
     url: String,
     server: JoinHandle<()>,
+    account: ExchangeState,
 }
 
 struct Account {
@@ -27,6 +31,8 @@ struct Account {
     trading: Decimal,
     funding: Decimal,
     transfers: HashMap<String, Value>,
+    replies: HashMap<String, VecDeque<(StatusCode, String)>>,
+    requests: HashMap<String, Vec<String>>,
 }
 
 impl Default for Account {
@@ -37,16 +43,18 @@ impl Default for Account {
             trading: Decimal::new(1, 2),
             funding: Decimal::ONE,
             transfers: HashMap::new(),
+            replies: HashMap::new(),
+            requests: HashMap::new(),
         }
     }
 }
 
 impl Account {
-    fn record_order(&mut self, client_id: &str, size: i64) -> String {
-        assert!(
+    fn record_order(&mut self, client_id: &str, size: i64) -> Result<String, FixtureError> {
+        ensure(
             !self.orders.contains_key(client_id),
-            "Duplicate client order ID"
-        );
+            "Duplicate client order ID",
+        )?;
         let order_id = (self.orders.len() + 1).to_string();
         self.orders.insert(
             client_id.into(),
@@ -55,7 +63,7 @@ impl Account {
                 "sz": size.to_string(), "state": "filled"
             }),
         );
-        order_id
+        Ok(order_id)
     }
 }
 
@@ -63,6 +71,7 @@ type ExchangeState = Arc<Mutex<Account>>;
 
 impl Exchange {
     pub async fn start() -> Self {
+        let account = Arc::new(Mutex::new(Account::default()));
         let app = Router::new()
             .route("/api/v5/account/config", get(account_config))
             .route("/api/v5/account/leverage-info", get(leverage))
@@ -75,12 +84,56 @@ impl Exchange {
             .route("/api/v5/asset/transfer-state", get(transfer_state))
             .route("/api/v5/trade/order", post(order).get(order_details))
             .route("/api/v5/trade/close-position", post(close))
-            .route_layer(middleware::from_fn(authenticate))
-            .with_state(Arc::new(Mutex::new(Account::default())));
+            .route("/api/v5/asset/deposit-history", get(empty_history))
+            .route("/api/v5/asset/withdrawal-history", get(empty_history))
+            .fallback(unmodelled_endpoint)
+            .layer(middleware::from_fn_with_state(
+                account.clone(),
+                authenticate,
+            ))
+            .with_state(account.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        Self { url, server }
+        Self {
+            url,
+            server,
+            account,
+        }
+    }
+
+    /// Queue an exact response after authentication, for production-client error-path tests.
+    pub async fn reply_once(&self, method: &str, path: &str, status: StatusCode, body: Value) {
+        self.reply_raw_once(method, path, status, body.to_string())
+            .await;
+    }
+
+    pub async fn reply_raw_once(&self, method: &str, path: &str, status: StatusCode, body: String) {
+        self.account
+            .lock()
+            .await
+            .replies
+            .entry(format!("{method} {path}"))
+            .or_default()
+            .push_back((status, body));
+    }
+
+    pub async fn request_bodies(&self, method: &str, path: &str) -> Vec<String> {
+        self.account
+            .lock()
+            .await
+            .requests
+            .get(&format!("{method} {path}"))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    pub async fn client(&self) -> Result<OkexClient, OkexClientError> {
+        OkexClient::with_test_endpoint(self.config(), self.url.clone()).await
     }
 
     pub fn config(&self) -> OkexClientConfig {
@@ -89,7 +142,6 @@ impl Exchange {
             secret_key: "test-secret".into(),
             passphrase: "test-passphrase".into(),
             simulated: true,
-            test_api: Some(self.url.clone()),
         }
     }
 }
@@ -104,7 +156,98 @@ fn response(data: Value) -> Json<Value> {
     Json(json!({"code": "0", "msg": "", "data": data}))
 }
 
-async fn authenticate(request: Request, next: Next) -> Result<Response, StatusCode> {
+#[derive(Debug)]
+struct FixtureError {
+    status: StatusCode,
+    code: &'static str,
+    message: String,
+}
+
+impl FixtureError {
+    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl IntoResponse for FixtureError {
+    fn into_response(self) -> Response {
+        (
+            self.status,
+            Json(json!({"code": self.code, "msg": self.message, "data": null})),
+        )
+            .into_response()
+    }
+}
+
+impl From<StatusCode> for FixtureError {
+    fn from(status: StatusCode) -> Self {
+        Self::new(
+            status,
+            "fixture",
+            format!("Fixture rejected request: {status}"),
+        )
+    }
+}
+
+type FixtureResult = Result<Json<Value>, FixtureError>;
+
+fn ensure(condition: bool, message: impl Into<String>) -> Result<(), FixtureError> {
+    if condition {
+        Ok(())
+    } else {
+        Err(FixtureError::new(
+            StatusCode::BAD_REQUEST,
+            "fixture",
+            message,
+        ))
+    }
+}
+
+fn field<'a>(body: &'a Value, name: &str) -> Result<&'a str, FixtureError> {
+    body.get(name)
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            FixtureError::new(
+                StatusCode::BAD_REQUEST,
+                "fixture",
+                format!("Missing or invalid field {name}"),
+            )
+        })
+}
+
+fn expect_field(body: &Value, name: &str, expected: &str) -> Result<(), FixtureError> {
+    ensure(
+        field(body, name)? == expected,
+        format!("Expected {name}={expected}"),
+    )
+}
+
+async fn unmodelled_endpoint(request: Request) -> FixtureError {
+    FixtureError::new(
+        StatusCode::NOT_IMPLEMENTED,
+        "fixture",
+        format!(
+            "Unmodelled endpoint: {} {}",
+            request.method(),
+            request.uri()
+        ),
+    )
+}
+
+async fn empty_history() -> Json<Value> {
+    response(json!([]))
+}
+
+async fn authenticate(
+    State(account): State<ExchangeState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, FixtureError> {
     let (parts, body) = request.into_parts();
     let header = |name| {
         parts
@@ -118,7 +261,7 @@ async fn authenticate(request: Request, next: Next) -> Result<Response, StatusCo
         ("ok-access-passphrase", "test-passphrase"),
     ] {
         if header(name) != Some(expected) {
-            return Err(StatusCode::UNAUTHORIZED);
+            return Err(StatusCode::UNAUTHORIZED.into());
         }
     }
     let timestamp = header("ok-access-timestamp").ok_or(StatusCode::UNAUTHORIZED)?;
@@ -127,7 +270,11 @@ async fn authenticate(request: Request, next: Next) -> Result<Response, StatusCo
     if (chrono::Utc::now() - parsed.with_timezone(&chrono::Utc)).abs()
         > chrono::Duration::seconds(30)
     {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Err(FixtureError::new(
+            StatusCode::UNAUTHORIZED,
+            "50102",
+            "Timestamp expired",
+        ));
     }
     let signature = BASE64
         .decode(
@@ -166,7 +313,7 @@ async fn authenticate(request: Request, next: Next) -> Result<Response, StatusCo
                     .ok_or(StatusCode::BAD_REQUEST)?,
             ),
         ],
-        "/api/v5/asset/transfer-state" => &[
+        "/api/v5/asset/transfer-state" | "/api/v5/asset/withdrawal-history" => &[
             ("ccy", "BTC"),
             (
                 "clientId",
@@ -183,8 +330,24 @@ async fn authenticate(request: Request, next: Next) -> Result<Response, StatusCo
             .iter()
             .any(|(key, value)| query.get(*key).map(String::as_str) != Some(*value))
     {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
+    let key = format!("{} {}", parts.method, parts.uri);
+    let mut account = account.lock().await;
+    account
+        .requests
+        .entry(key.clone())
+        .or_default()
+        .push(String::from_utf8_lossy(&body).into_owned());
+    if let Some((status, body)) = account.replies.get_mut(&key).and_then(VecDeque::pop_front) {
+        return Ok((
+            status,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            body,
+        )
+            .into_response());
+    }
+    drop(account);
     Ok(next.run(Request::from_parts(parts, Body::from(body))).await)
 }
 
@@ -254,39 +417,62 @@ async fn trading_balance(State(account): State<ExchangeState>) -> Json<Value> {
     }]))
 }
 
-async fn transfer(State(account): State<ExchangeState>, Json(body): Json<Value>) -> Json<Value> {
-    let amount: Decimal = body["amt"].as_str().unwrap().parse().unwrap();
-    assert!(amount > Decimal::ZERO);
-    assert_eq!(body["ccy"], "BTC");
+async fn transfer(State(account): State<ExchangeState>, Json(body): Json<Value>) -> FixtureResult {
+    let amount: Decimal = field(&body, "amt")?.parse().map_err(|_| {
+        FixtureError::new(
+            StatusCode::BAD_REQUEST,
+            "fixture",
+            "Invalid transfer amount",
+        )
+    })?;
+    ensure(amount > Decimal::ZERO, "Transfer amount must be positive")?;
+    expect_field(&body, "ccy", "BTC")?;
+    let id = field(&body, "clientId")?;
     let mut account = account.lock().await;
-    match (body["from"].as_str().unwrap(), body["to"].as_str().unwrap()) {
+    ensure(
+        !account.transfers.contains_key(id),
+        "Duplicate client transfer ID",
+    )?;
+    match (field(&body, "from")?, field(&body, "to")?) {
         ("6", "18") => {
-            assert!(account.funding >= amount);
+            ensure(account.funding >= amount, "Insufficient funding balance")?;
             account.funding -= amount;
             account.trading += amount;
         }
         ("18", "6") => {
-            assert!(account.trading >= amount);
+            ensure(account.trading >= amount, "Insufficient trading balance")?;
             account.trading -= amount;
             account.funding += amount;
         }
-        other => panic!("Unexpected transfer: {other:?}"),
+        _ => {
+            return Err(FixtureError::new(
+                StatusCode::BAD_REQUEST,
+                "fixture",
+                "Unexpected transfer accounts",
+            ))
+        }
     }
-    let id = body["clientId"].as_str().unwrap();
     let mut data = body.clone();
     data["transId"] = json!((account.transfers.len() + 1).to_string());
     data["state"] = json!("success");
     data["subAcct"] = json!("");
     account.transfers.insert(id.into(), data.clone());
-    response(json!([data]))
+    Ok(response(json!([data])))
 }
 
 async fn transfer_state(
     State(account): State<ExchangeState>,
     Query(query): Query<HashMap<String, String>>,
-) -> Json<Value> {
+) -> FixtureResult {
     let account = account.lock().await;
-    response(json!([account.transfers[&query["clientId"]]]))
+    let data = account.transfers.get(&query["clientId"]).ok_or_else(|| {
+        FixtureError::new(
+            StatusCode::BAD_REQUEST,
+            "58129",
+            "Unknown client transfer ID",
+        )
+    })?;
+    Ok(response(json!([data])))
 }
 
 async fn fees() -> Json<Value> {
@@ -353,39 +539,65 @@ async fn positions(State(account): State<ExchangeState>) -> Json<Value> {
     response(json!([position]))
 }
 
-async fn order(State(account): State<ExchangeState>, Json(body): Json<Value>) -> Json<Value> {
-    assert_eq!(body["instId"], "BTC-USD-SWAP");
-    assert_eq!(body["tdMode"], "cross");
-    assert_eq!(body["posSide"], "net");
-    assert_eq!(body["ordType"], "market");
-    let size = body["sz"].as_str().unwrap().parse::<i64>().unwrap();
-    assert!(size > 0);
-    let direction = match body["side"].as_str().unwrap() {
+async fn order(State(account): State<ExchangeState>, Json(body): Json<Value>) -> FixtureResult {
+    for (name, expected) in [
+        ("instId", "BTC-USD-SWAP"),
+        ("tdMode", "cross"),
+        ("posSide", "net"),
+        ("ordType", "market"),
+    ] {
+        expect_field(&body, name, expected)?;
+    }
+    let size = field(&body, "sz")?
+        .parse::<i64>()
+        .map_err(|_| FixtureError::new(StatusCode::BAD_REQUEST, "fixture", "Invalid order size"))?;
+    ensure(size > 0, "Order size must be positive")?;
+    let direction = match field(&body, "side")? {
         "buy" => 1,
         "sell" => -1,
-        other => panic!("Unexpected order side: {other}"),
+        _ => {
+            return Err(FixtureError::new(
+                StatusCode::BAD_REQUEST,
+                "fixture",
+                "Unexpected order side",
+            ))
+        }
     };
-    let id = body["clOrdId"].as_str().unwrap();
+    let id = field(&body, "clOrdId")?;
     let mut account = account.lock().await;
+    let order_id = account.record_order(id, size)?;
     account.contracts += direction * size;
-    let order_id = account.record_order(id, size);
-    response(json!([{"clOrdId": id, "ordId": order_id, "tag": "", "sCode": "0", "sMsg": ""}]))
+    Ok(response(
+        json!([{"clOrdId": id, "ordId": order_id, "tag": "", "sCode": "0", "sMsg": ""}]),
+    ))
 }
 
 async fn order_details(
     State(account): State<ExchangeState>,
     Query(query): Query<HashMap<String, String>>,
-) -> Json<Value> {
+) -> FixtureResult {
     let account = account.lock().await;
-    response(json!([account.orders[&query["clOrdId"]]]))
+    let data = account.orders.get(&query["clOrdId"]).ok_or_else(|| {
+        FixtureError::new(StatusCode::BAD_REQUEST, "51603", "Unknown client order ID")
+    })?;
+    Ok(response(json!([data])))
 }
 
-async fn close(State(account): State<ExchangeState>, Json(body): Json<Value>) -> Json<Value> {
-    assert_eq!(body["instId"], "BTC-USD-SWAP");
-    assert_eq!(body["mgnMode"], "cross");
+async fn close(State(account): State<ExchangeState>, Json(body): Json<Value>) -> FixtureResult {
+    expect_field(&body, "instId", "BTC-USD-SWAP")?;
+    expect_field(&body, "mgnMode", "cross")?;
     let mut account = account.lock().await;
     let size = account.contracts.abs();
-    account.record_order(body["clOrdId"].as_str().unwrap(), size);
+    if size == 0 {
+        return Err(FixtureError::new(
+            StatusCode::OK,
+            "51023",
+            "Position does not exist",
+        ));
+    }
+    account.record_order(field(&body, "clOrdId")?, size)?;
     account.contracts = 0;
-    response(json!([{"instId": "BTC-USD-SWAP", "posSide": "net"}]))
+    Ok(response(
+        json!([{"instId": "BTC-USD-SWAP", "posSide": "net"}]),
+    ))
 }

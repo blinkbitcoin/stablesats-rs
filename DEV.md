@@ -95,11 +95,25 @@ $ cargo test -p okex-price
 The position-operation and hedging tests use a separate local HTTP exchange
 fixture for each test. They exercise the real OKX client request and response
 handling without a funded demo account. The `okex-client` `test-support` feature
-is enabled by test dependencies and by builds using `--all-features`, including
-the macOS release build. The endpoint override cannot be loaded from application
-configuration and is currently assigned only by test fixtures. The reusable
-fixture is exposed as `okex_client::test_support`. Tests in `okex-client/tests/client.rs`
-still provide the external OKX demo API checks.
+exposes an explicit fixture-client constructor and reusable HTTP fixture.
+Application configuration has no endpoint override field. Release builds use default features; `check-release-features.sh`
+rejects a release dependency graph that enables test support. The same rate-limiter
+code runs for both clients: production shares a one-request-per-second budget per
+endpoint across clients, while each fixture client has a higher quota.
+
+Tests in `okex-client/tests/client.rs` are ignored and do not run in PR CI. The
+`OKX demo contract` workflow runs them sequentially each Monday and supports manual
+`workflow_dispatch`, using the repository's demo-account `OKEX_*` secrets. Failures
+produce a failed workflow and GitHub Actions notifications for its subscribers.
+The demo account must be configured for net mode, account level 2, and funded for
+its position and transfer tests. The deposit/withdrawal tests additionally require
+explicit address/amount environment variables and otherwise skip their bodies;
+the scheduled workflow does not supply those variables. PR integration tests do
+not receive OKX credentials. To run the demo checks locally:
+
+```sh
+cargo test --locked -p okex-client --test client -- --ignored --test-threads=1
+```
 
 Run the position and collateral tests without exchange credentials:
 ```bash

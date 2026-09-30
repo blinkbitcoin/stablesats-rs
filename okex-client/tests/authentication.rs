@@ -34,7 +34,7 @@ fn client() -> Client {
 #[tokio::test]
 async fn rejects_missing_or_invalid_authentication() -> anyhow::Result<()> {
     let exchange = Exchange::start().await;
-    let url = exchange.config().test_api.unwrap();
+    let url = exchange.url();
     let client = client();
     let path = "/api/v5/account/config";
     let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
@@ -90,7 +90,7 @@ async fn rejects_missing_or_invalid_authentication() -> anyhow::Result<()> {
 #[tokio::test]
 async fn rejects_signatures_for_different_methods_paths_queries_and_bodies() -> anyhow::Result<()> {
     let exchange = Exchange::start().await;
-    let url = exchange.config().test_api.unwrap();
+    let url = exchange.url();
     let client = client();
     let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     for (signed_method, signed_path, signed_body, method, path, body) in [
@@ -146,7 +146,7 @@ async fn rejects_signatures_for_different_methods_paths_queries_and_bodies() -> 
 #[tokio::test]
 async fn rejects_incorrect_endpoint_queries_and_oversized_bodies() -> anyhow::Result<()> {
     let exchange = Exchange::start().await;
-    let url = exchange.config().test_api.unwrap();
+    let url = exchange.url();
     let client = client();
     let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     for path in [
@@ -188,6 +188,116 @@ async fn rejects_incorrect_endpoint_queries_and_oversized_bodies() -> anyhow::Re
             .await?
             .status(),
         StatusCode::BAD_REQUEST
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn fixture_rejections_include_diagnostics_and_preserve_state() -> anyhow::Result<()> {
+    use okex_client::{BtcUsdSwapContracts, ClientOrderId, OkexOrderSide};
+    use rust_decimal_macros::dec;
+    use serde_json::{json, Value};
+    let exchange = Exchange::start().await;
+    let okex = exchange.client().await?;
+    let http = client();
+    let order = json!({"instId":"BTC-USD-SWAP","tdMode":"cross","posSide":"net","ordType":"market","sz":"1","side":"sell","clOrdId":"order"});
+    let transfer = json!({"amt":"0.01","ccy":"BTC","from":"6","to":"18","clientId":"transfer"});
+    let mut cases = Vec::new();
+    for (field, value, message) in [
+        ("instId", "ETH-USD-SWAP", "instId"),
+        ("tdMode", "isolated", "tdMode"),
+        ("posSide", "long", "posSide"),
+        ("ordType", "limit", "ordType"),
+        ("sz", "bad", "Invalid order size"),
+        ("sz", "0", "positive"),
+        ("side", "bad", "order side"),
+        ("clOrdId", "", "clOrdId"),
+    ] {
+        let mut body = order.clone();
+        body[field] = json!(value);
+        cases.push(("/api/v5/trade/order", body, message));
+    }
+    for (field, value, message) in [
+        ("amt", "bad", "Invalid transfer amount"),
+        ("amt", "0", "positive"),
+        ("amt", "2", "Insufficient funding"),
+        ("ccy", "USD", "ccy"),
+        ("clientId", "", "clientId"),
+        ("from", "bad", "transfer accounts"),
+    ] {
+        let mut body = transfer.clone();
+        body[field] = json!(value);
+        cases.push(("/api/v5/asset/transfer", body, message));
+    }
+    cases.push((
+        "/api/v5/asset/transfer",
+        json!({"amt":"1","ccy":"BTC","from":"18","to":"6","clientId":"insufficient"}),
+        "Insufficient trading",
+    ));
+    cases.push((
+        "/api/v5/trade/close-position",
+        json!({"instId":"wrong","mgnMode":"cross"}),
+        "instId",
+    ));
+    cases.push((
+        "/api/v5/trade/close-position",
+        json!({"instId":"BTC-USD-SWAP","mgnMode":"wrong"}),
+        "mgnMode",
+    ));
+    for (path, body, expected) in cases {
+        let body = body.to_string();
+        let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let response = http
+            .post(format!("{}{path}", exchange.url()))
+            .headers(signed_headers("POST", path, &body, &timestamp))
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let data: Value = response.json().await?;
+        assert!(data["msg"].as_str().unwrap().contains(expected), "{data}");
+    }
+    assert_eq!(
+        okex.get_position_in_signed_usd_cents().await?.usd_cents,
+        dec!(0)
+    );
+    assert_eq!(
+        okex.funding_account_balance().await?.total_amt_in_btc,
+        dec!(1)
+    );
+    assert_eq!(
+        okex.trading_account_balance().await?.total_amt_in_btc,
+        dec!(0.01)
+    );
+    let id = ClientOrderId::new();
+    okex.place_order(
+        id.clone(),
+        OkexOrderSide::Sell,
+        &BtcUsdSwapContracts::from(1),
+    )
+    .await?;
+    let error = okex
+        .place_order(id, OkexOrderSide::Sell, &BtcUsdSwapContracts::from(1))
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("Duplicate client order ID"));
+    assert_eq!(
+        okex.get_position_in_signed_usd_cents().await?.usd_cents,
+        dec!(-10000)
+    );
+    let id = okex_client::ClientTransferId::new();
+    okex.transfer_funding_to_trading(id.clone(), dec!(0.01))
+        .await?;
+    assert!(okex
+        .transfer_funding_to_trading(id, dec!(0.01))
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("Duplicate client transfer ID"));
+    assert_eq!(
+        okex.trading_account_balance().await?.total_amt_in_btc,
+        dec!(0.02)
     );
     Ok(())
 }

@@ -14,7 +14,7 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 pub use error::*;
 pub use okex_response::OrderDetails;
@@ -28,8 +28,11 @@ use governor::{
 use rustls::crypto::{ring::default_provider, CryptoProvider};
 use std::num::NonZeroU32;
 
+type RequestLimiter = RateLimiter<&'static str, DefaultKeyedStateStore<&'static str>, DefaultClock>;
+
 lazy_static::lazy_static! {
-    static ref LIMITER: RateLimiter<&'static str, DefaultKeyedStateStore<&'static str>, DefaultClock>  = RateLimiter::keyed(Quota::per_second(NonZeroU32::new(1).unwrap()));
+    // Preserve the exchange-wide budget across independently constructed production clients.
+    static ref LIMITER: Arc<RequestLimiter> = Arc::new(RateLimiter::keyed(Quota::per_second(NonZeroU32::new(1).unwrap())));
 }
 
 const TESTNET_BURNER_ADDRESS: &str = "tb1qfqh7ksqcrhjgq35clnf06l5d9s6tk2ke46ecrj";
@@ -49,26 +52,56 @@ pub struct OkexClientConfig {
     pub secret_key: String,
     #[serde(default)]
     pub simulated: bool,
-    /// In-process HTTP fixture endpoint; never loaded from application configuration.
-    #[cfg(feature = "test-support")]
-    #[serde(skip)]
-    pub test_api: Option<String>,
 }
 
 #[derive(Clone)]
 pub struct OkexClient {
     client: ReqwestClient,
     config: OkexClientConfig,
+    base_url: String,
+    limiter: Arc<RequestLimiter>,
 }
 
 impl OkexClient {
     pub async fn new(config: OkexClientConfig) -> Result<Self, OkexClientError> {
-        let _ = CryptoProvider::install_default(default_provider());
+        Self::build(config, OKEX_API_URL.to_owned(), Arc::clone(&LIMITER))?
+            .validate_account()
+            .await
+    }
 
-        let client = Self {
+    /// Construct a fixture client explicitly; application configuration cannot select an endpoint.
+    #[cfg(feature = "test-support")]
+    pub async fn with_test_endpoint(
+        config: OkexClientConfig,
+        base_url: String,
+    ) -> Result<Self, OkexClientError> {
+        Self::build(
+            config,
+            base_url,
+            Arc::new(RateLimiter::keyed(Quota::per_second(
+                NonZeroU32::new(1000).unwrap(),
+            ))),
+        )?
+        .validate_account()
+        .await
+    }
+
+    fn build(
+        config: OkexClientConfig,
+        base_url: String,
+        limiter: Arc<RequestLimiter>,
+    ) -> Result<Self, OkexClientError> {
+        let _ = CryptoProvider::install_default(default_provider());
+        Ok(Self {
             client: ReqwestClient::builder().use_rustls_tls().build()?,
             config,
-        };
+            base_url,
+            limiter,
+        })
+    }
+
+    async fn validate_account(self) -> Result<Self, OkexClientError> {
+        let client = self;
         let path = "/api/v5/account/config";
         let config_data = client
             .get_response_data_with_retry::<OkexAccountConfigurationData>(path, path)
@@ -116,14 +149,8 @@ impl OkexClient {
     }
 
     async fn wait_for_rate_limit(&self, key: &'static str) {
-        // The in-process fixture has no exchange quota. Keeping the shared limiter
-        // here lets the polling loop starve the test's position checks.
-        #[cfg(feature = "test-support")]
-        if self.config.test_api.is_some() {
-            return;
-        }
         let jitter = Jitter::new(Duration::from_secs(1), Duration::from_secs(1));
-        LIMITER.until_key_ready_with_jitter(&key, jitter).await;
+        self.limiter.until_key_ready_with_jitter(&key, jitter).await;
     }
 
     #[instrument(name = "okex_client.get_funding_deposit_address", skip(self), err)]
@@ -760,11 +787,7 @@ impl OkexClient {
     }
 
     fn url_for_path(&self, path: &str) -> String {
-        #[cfg(feature = "test-support")]
-        if let Some(api) = &self.config.test_api {
-            return format!("{api}{path}");
-        }
-        format!("{OKEX_API_URL}{path}")
+        format!("{}{path}", self.base_url)
     }
 
     fn post_request_headers(
@@ -824,18 +847,51 @@ mod endpoint_tests {
 
     #[test]
     fn application_configuration_cannot_override_test_endpoint() {
-        let _ = CryptoProvider::install_default(default_provider());
-        let config: OkexClientConfig = serde_json::from_value(serde_json::json!({
-            "test_api": "http://127.0.0.1:1"
-        }))
-        .unwrap();
-        let client = OkexClient {
-            client: ReqwestClient::new(),
-            config,
-        };
+        let config: OkexClientConfig =
+            serde_yaml::from_str("test_api: http://127.0.0.1:1\nbase_url: http://127.0.0.1:1")
+                .unwrap();
+        let client =
+            OkexClient::build(config, OKEX_API_URL.to_owned(), Arc::clone(&LIMITER)).unwrap();
         assert_eq!(
             client.url_for_path("/api/test"),
             "https://www.okx.com/api/test"
         );
+        assert!(serde_yaml::to_string(&client.config)
+            .unwrap()
+            .find("test_api")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn production_clients_and_clones_share_the_rate_limit() {
+        let client = OkexClient::build(
+            OkexClientConfig::default(),
+            OKEX_API_URL.to_owned(),
+            Arc::clone(&LIMITER),
+        )
+        .unwrap();
+        let other = OkexClient::build(
+            OkexClientConfig::default(),
+            OKEX_API_URL.to_owned(),
+            Arc::clone(&LIMITER),
+        )
+        .unwrap();
+        assert!(Arc::ptr_eq(&client.limiter, &other.limiter));
+        client.wait_for_rate_limit("rate-limit-regression").await;
+        let start = std::time::Instant::now();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            client.clone().wait_for_rate_limit("rate-limit-regression"),
+        )
+        .await
+        .unwrap();
+        assert!(start.elapsed() >= Duration::from_secs(1));
+        // An independent endpoint key has its own budget.
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            other.wait_for_rate_limit("different-key"),
+        )
+        .await
+        .unwrap();
     }
 }

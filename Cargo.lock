@@ -308,7 +308,6 @@ version = "0.12.13-dev"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum-core",
  "chrono",
  "futures",
  "opentelemetry",
@@ -1226,7 +1225,6 @@ dependencies = [
  "chrono",
  "futures",
  "galoy-client",
- "h2",
  "okex-client",
  "opentelemetry",
  "opentelemetry_sdk",
@@ -2248,7 +2246,6 @@ version = "0.12.13-dev"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum-core",
  "chrono",
  "futures",
  "opentelemetry",

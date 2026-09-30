@@ -1,0 +1,36 @@
+name: OKX demo contract
+
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: okex-demo-account
+  cancel-in-progress: false
+
+jobs:
+  demo:
+    name: OKX demo contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v4
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - name: Run ignored demo-account tests sequentially
+        env:
+          OKEX_API_KEY: ${{ secrets.OKEX_API_KEY }}
+          OKEX_PASSPHRASE: ${{ secrets.OKEX_PASSPHRASE }}
+          OKEX_SECRET_KEY: ${{ secrets.OKEX_SECRET_KEY }}
+        run: |
+          : "${OKEX_API_KEY:?Missing demo API key}"
+          : "${OKEX_PASSPHRASE:?Missing demo passphrase}"
+          : "${OKEX_SECRET_KEY:?Missing demo secret key}"
+          nix develop -c cargo test --locked -p okex-client --test client -- --ignored --test-threads=1
+      - name: Report contract failure
+        if: failure()
+        run: echo 'OKX demo contract failed. Inspect the test log and demo account configuration. GitHub Actions failure notifications apply to this workflow.' >> "$GITHUB_STEP_SUMMARY"

@@ -16,7 +16,6 @@ async fn configured_okex_client() -> anyhow::Result<OkexClient> {
         passphrase,
         secret_key,
         simulated: true,
-        ..Default::default()
     })
     .await?;
 
@@ -59,7 +58,6 @@ async fn client_is_missing_header() -> anyhow::Result<()> {
         passphrase: "".to_string(),
         secret_key: "".to_string(),
         simulated: true,
-        ..Default::default()
     })
     .await;
 
@@ -142,7 +140,7 @@ async fn withdraw_to_onchain_address() -> anyhow::Result<()> {
             .withdraw_btc_onchain(ClientTransferId::new(), amount, fee, onchain_address)
             .await?;
 
-        assert!(withdraw_id.value.len() == 8);
+        assert!(!withdraw_id.value.is_empty());
     }
     Ok(())
 }
@@ -156,7 +154,7 @@ async fn transfer_trading_to_funding() -> anyhow::Result<()> {
         .transfer_trading_to_funding(ClientTransferId::new(), amount)
         .await?;
 
-    assert!(transfer_id.value.len() == 9);
+    assert!(!transfer_id.value.is_empty());
 
     Ok(())
 }

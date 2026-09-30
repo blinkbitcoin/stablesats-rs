@@ -28,8 +28,8 @@ impl OkexEngine {
         config: OkexConfig,
         ledger: Ledger,
         price_receiver: memory::Subscriber<PriceStreamPayload>,
+        okex_client: OkexClient,
     ) -> Result<Arc<Self>, HedgingError> {
-        let okex_client = OkexClient::new(config.client.clone()).await?;
         let orders = OkexOrders::new(pool.clone()).await?;
         let transfers = OkexTransfers::new(pool.clone()).await?;
         okex_client
