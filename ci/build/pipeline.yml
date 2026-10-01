@@ -22,9 +22,7 @@ jobs:
       image_resource:
         type: registry-image
         source:
-          username: ((docker-creds.username))
-          password: ((docker-creds.password))
-          repository: us.gcr.io/galoy-org/rust-concourse
+          repository: nixpkgs/nix-flakes
       inputs:
       - name: pipeline-tasks
       - name: repo
@@ -32,7 +30,13 @@ jobs:
       - path: cargo-home
       - path: cargo-target-dir
       run:
-        path: pipeline-tasks/ci/vendor/tasks/rust-check-code.sh
+        path: nix
+        dir: repo
+        args:
+        - develop
+        - -c
+        - make
+        - check-code
 - name: build-edge-image
   serial: true
   plan:
@@ -515,27 +519,34 @@ directories:
   - path: .
     git:
       url: https://github.com/blinkbitcoin/concourse-shared.git
-      ref: cfd07211efb7ef9c986020d1d24069c820fd1717
+      ref: 327c88016cbc6bf3c4e59df40ee0fd90c9b20d83
     includePaths:
     - shared/actions/*
     excludePaths:
     - shared/actions/nodejs-*
+    - shared/actions/tofu-*
     newRootPath: shared/actions
 - path: ./vendor
   contents:
   - path: .
     git:
       url: https://github.com/blinkbitcoin/concourse-shared.git
-      ref: cfd07211efb7ef9c986020d1d24069c820fd1717
+      ref: 327c88016cbc6bf3c4e59df40ee0fd90c9b20d83
     includePaths:
     - shared/ci/**/*
     excludePaths:
     - shared/ci/**/nodejs-*
+    - shared/ci/**/tofu-*
     newRootPath: shared/ci
----
-version: 2
-updates:
-- package-ecosystem: cargo
-  directory: /
-  schedule:
-    interval: daily
+- path: ../bin/vendor
+  contents:
+  - path: .
+    git:
+      url: https://github.com/blinkbitcoin/concourse-shared.git
+      ref: 327c88016cbc6bf3c4e59df40ee0fd90c9b20d83
+    includePaths:
+    - shared/bin/**/*
+    excludePaths:
+    - shared/bin/**/nodejs-*
+    - shared/bin/**/tofu-*
+    newRootPath: shared/bin
