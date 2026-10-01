@@ -4,12 +4,17 @@ on:
   schedule:
     - cron: '23 5 * * 1'
   workflow_dispatch:
+    inputs:
+      alert_smoke_test:
+        description: Simulate a failure without exchange calls or issue writes
+        type: choice
+        default: 'off'
+        options: ['off', setup, preflight, contract]
   push:
     branches: [main]
     paths:
       - 'okex-client/**'
       - '.github/workflows/okex-demo.yml'
-      - '.github/scripts/report-okex-demo-failure*'
 
 permissions:
   contents: read
@@ -23,14 +28,17 @@ jobs:
     name: OKX demo contract
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    outputs:
-      preflight: ${{ steps.preflight.outcome }}
     steps:
       - uses: actions/checkout@v4
+      - name: Simulate setup failure
+        if: ${{ inputs.alert_smoke_test == 'setup' }}
+        run: exit 1
       - uses: DeterminateSystems/nix-installer-action@v4
+        if: ${{ !inputs.alert_smoke_test || inputs.alert_smoke_test == 'off' }}
       - uses: DeterminateSystems/magic-nix-cache-action@v8
+        if: ${{ !inputs.alert_smoke_test || inputs.alert_smoke_test == 'off' }}
       - name: Check demo-account prerequisites
-        id: preflight
+        if: ${{ !inputs.alert_smoke_test || inputs.alert_smoke_test == 'off' }}
         env:
           OKEX_API_KEY: ${{ secrets.OKEX_API_KEY }}
           OKEX_PASSPHRASE: ${{ secrets.OKEX_PASSPHRASE }}
@@ -40,7 +48,17 @@ jobs:
           : "${OKEX_PASSPHRASE:?DEMO_ACCOUNT_PREFLIGHT: missing demo passphrase}"
           : "${OKEX_SECRET_KEY:?DEMO_ACCOUNT_PREFLIGHT: missing demo secret key}"
           nix develop -c cargo test --locked -p okex-client --test client demo_account_ready -- --ignored --exact
+      # Keep this name identical to the real preflight for Actions API classification.
+      - name: Check demo-account prerequisites
+        if: ${{ inputs.alert_smoke_test == 'preflight' || inputs.alert_smoke_test == 'contract' }}
+        env:
+          SMOKE_TEST: ${{ inputs.alert_smoke_test }}
+        run: test "$SMOKE_TEST" = contract
+      - name: Simulate contract failure
+        if: ${{ inputs.alert_smoke_test == 'contract' }}
+        run: exit 1
       - name: Run ignored demo-account tests sequentially
+        if: ${{ !inputs.alert_smoke_test || inputs.alert_smoke_test == 'off' }}
         env:
           OKEX_API_KEY: ${{ secrets.OKEX_API_KEY }}
           OKEX_PASSPHRASE: ${{ secrets.OKEX_PASSPHRASE }}
@@ -53,14 +71,26 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       issues: write
     steps:
       - uses: actions/checkout@v4
       - name: Alert the demo-check owner
         uses: actions/github-script@v7
         env:
-          PREFLIGHT: ${{ needs.demo.outputs.preflight }}
+          OKEX_DEMO_OWNER: ${{ vars.OKEX_DEMO_OWNER }}
+          SMOKE_TEST: ${{ inputs.alert_smoke_test }}
         with:
           script: |
             const reportFailure = require('./.github/scripts/report-okex-demo-failure.cjs');
-            await reportFailure({ github, context, preflight: process.env.PREFLIGHT });
+            const smoke = process.env.SMOKE_TEST;
+            const dryRun = !!smoke && smoke !== 'off';
+            const body = await reportFailure({
+              github, context, alertOwner: process.env.OKEX_DEMO_OWNER,
+              attempt: Number(process.env.GITHUB_RUN_ATTEMPT), dryRun,
+            });
+            if (dryRun) {
+              const expected = { setup: 'Workflow setup failed', preflight: 'Account preflight failed', contract: 'Contract tests failed' }[smoke];
+              if (!body.startsWith(expected)) throw new Error(`Unexpected smoke-test category: ${body}`);
+              await core.summary.addRaw(`Smoke test passed; no issue written.\n\n${body}`).write();
+            }
