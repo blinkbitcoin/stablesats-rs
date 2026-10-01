@@ -158,6 +158,12 @@ Alert-script-only edits do not trigger demo trading. Run their Node regression t
 through `nix develop -c make check-code` (Node is included in the development shell).
 The smoke check verifies failed-job classification, not actual issue notification delivery.
 
+Verified on 2026-10-01 at `0c559cca`: all three deliberate failures produced a
+successful alert job with the expected category, while real demo steps were skipped:
+[setup](https://github.com/blinkbitcoin/stablesats-rs/actions/runs/36897928157),
+[preflight](https://github.com/blinkbitcoin/stablesats-rs/actions/runs/36897840171), and
+[contract](https://github.com/blinkbitcoin/stablesats-rs/actions/runs/36897749214).
+
 ## Database Configuration
 
 The stablesats project uses different environment variables for database connections depending on the context:
