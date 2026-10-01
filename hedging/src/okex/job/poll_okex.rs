@@ -141,6 +141,7 @@ mod tests {
                     assert_eq!(row.1.as_deref(), Some(if action == "deposit" { "deposit-tx" } else { "withdrawal-tx" }));
                 }
             }
+            exchange.assert_all_replies_consumed().await;
             anyhow::Ok(())
         }).await?
     }

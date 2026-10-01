@@ -19,6 +19,7 @@ next-watch:
 	cargo watch -s 'cargo nextest run'
 
 check-code:
+	bin/test-release-features.sh
 	bin/check-release-features.sh x86_64-apple-darwin
 	bin/check-release-features.sh x86_64-unknown-linux-musl
 	SQLX_OFFLINE=true cargo fmt --check --all
@@ -30,11 +31,11 @@ test-in-ci:
 
 test-local: tilt-up-bg
 	DATABASE_URL=postgres://user:password@localhost:5440/pg cargo sqlx migrate run
-	bash -c 'source .api-key.env && GALOY_GRAPHQL_URI="http://localhost:4455/graphql" PG_PORT=5440 SQLX_OFFLINE=true RUST_BACKTRACE=1 cargo nextest run --verbose --locked --no-fail-fast'
+	bash -c 'source .api-key.env && GALOY_GRAPHQL_URI="http://localhost:4455/graphql" DATABASE_URL=postgres://user:password@localhost:5440/pg PG_PORT=5440 SQLX_OFFLINE=true RUST_BACKTRACE=1 cargo nextest run --verbose --locked --no-fail-fast'
 
 test-local-ci:
 	DATABASE_URL=postgres://user:password@localhost:5440/pg cargo sqlx migrate run
-	bash -c 'source .api-key.env && GALOY_GRAPHQL_URI="http://localhost:4455/graphql" PG_PORT=5440 SQLX_OFFLINE=true RUST_BACKTRACE=1 cargo nextest run --verbose --locked --no-fail-fast'
+	bash -c 'source .api-key.env && GALOY_GRAPHQL_URI="http://localhost:4455/graphql" DATABASE_URL=postgres://user:password@localhost:5440/pg PG_PORT=5440 SQLX_OFFLINE=true RUST_BACKTRACE=1 cargo nextest run --verbose --locked --no-fail-fast'
 
 tilt-up:
 	tilt up

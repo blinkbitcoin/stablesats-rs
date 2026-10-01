@@ -164,6 +164,8 @@ async fn rejects_incorrect_endpoint_queries_and_oversized_bodies() -> anyhow::Re
         "/api/v5/trade/order?instId=ETH-USD-SWAP&clOrdId=test",
         "/api/v5/asset/transfer-state?ccy=BTC",
         "/api/v5/asset/transfer-state?ccy=BTC&clientId=",
+        "/api/v5/asset/transfer-state?ccy=BTC&transId=",
+        "/api/v5/asset/transfer-state?ccy=BTC&transId=1&clientId=test",
         "/api/v5/asset/transfer-state?ccy=USD&clientId=test",
     ] {
         assert_eq!(
@@ -299,5 +301,49 @@ async fn fixture_rejections_include_diagnostics_and_preserve_state() -> anyhow::
         okex.trading_account_balance().await?.total_amt_in_btc,
         dec!(0.02)
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn unknown_routes_with_queries_support_diagnostics_and_scripted_replies() -> anyhow::Result<()>
+{
+    use okex_client::test_support::StatusCode as FixtureStatus;
+    use serde_json::{json, Value};
+    let exchange = Exchange::start().await;
+    let http = client();
+    let path = "/api/v5/asset/deposit-address?ccy=BTC";
+    for scripted in [false, true] {
+        if scripted {
+            exchange
+                .reply_once(
+                    "GET",
+                    path,
+                    FixtureStatus::OK,
+                    json!({"code":"0","msg":"","data":[{"addr":"test-address"}]}),
+                )
+                .await;
+        }
+        let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+        let response = http
+            .get(format!("{}{path}", exchange.url()))
+            .headers(signed_headers("GET", path, "", &timestamp))
+            .send()
+            .await?;
+        assert_eq!(
+            response.status(),
+            if scripted {
+                StatusCode::OK
+            } else {
+                StatusCode::NOT_IMPLEMENTED
+            }
+        );
+        let body: Value = response.json().await?;
+        if scripted {
+            assert_eq!(body["data"][0]["addr"], "test-address");
+        } else {
+            assert_eq!(body["msg"], format!("Unmodelled endpoint: GET {path}"));
+        }
+    }
+    exchange.assert_all_replies_consumed().await;
     Ok(())
 }

@@ -3,8 +3,6 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serial_test::{file_serial, serial};
 
-use std::env;
-
 use bria_client::*;
 use ledger::*;
 use okex_client::*;
@@ -15,34 +13,77 @@ use shared::test_utils::DatabaseTestFixture;
 
 use okex_client::test_support as support;
 
-fn galoy_client_config() -> GaloyClientConfig {
-    let api = env::var("GALOY_GRAPHQL_URI").expect("GALOY_GRAPHQL_URI not set");
-    let api_key = env::var("GALOY_API_KEY").expect("GALOY_API_KEY not set");
-
-    GaloyClientConfig { api, api_key }
+// The hedging scenario does not call Galoy or Bria, but Bria connects over HTTP/2.
+// Keep that connection local and fail if the scenario starts depending on either API.
+struct ServiceConnections {
+    url: String,
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    server: tokio::task::JoinHandle<()>,
 }
 
-fn bria_client_config() -> BriaClientConfig {
-    let url = env::var("BRIA_URL").unwrap_or("http://localhost:2742".to_string());
-    let profile_api_key = "bria_dev_000000000000000000000".to_string();
-    let wallet_name = "dev-wallet".to_string();
-    let payout_queue_name = "dev-queue".to_string();
-    let onchain_address_external_id = "stablesats_external_id".to_string();
-
-    BriaClientConfig {
-        url,
-        profile_api_key,
-        wallet_name,
-        onchain_address_external_id,
-        payout_queue_name,
+impl ServiceConnections {
+    async fn start() -> anyhow::Result<Self> {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let app = axum::Router::new().fallback(move |request: axum::extract::Request| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async move {
+                (
+                    axum::http::StatusCode::NOT_IMPLEMENTED,
+                    format!("Unexpected dependency request: {}", request.uri()),
+                )
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        Ok(Self { url, calls, server })
     }
 }
+
+impl Drop for ServiceConnections {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
+
+#[tokio::test]
+async fn service_connections_report_unexpected_requests() -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let services = ServiceConnections::start().await?;
+    let mut socket =
+        tokio::net::TcpStream::connect(services.url.trim_start_matches("http://")).await?;
+    socket
+        .write_all(b"GET /unexpected HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await?;
+    let mut response = String::new();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        socket.read_to_string(&mut response),
+    )
+    .await??;
+    assert!(response.starts_with("HTTP/1.1 501"));
+    assert!(response.contains("Unexpected dependency request: /unexpected"));
+    assert_eq!(services.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    Ok(())
+}
+
+const POSITION_PHASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+const HEDGING_SETUP_BUDGET: std::time::Duration = std::time::Duration::from_secs(80);
 
 #[tokio::test]
 #[serial]
 #[file_serial]
 async fn hedging() -> anyhow::Result<()> {
-    tokio::time::timeout(std::time::Duration::from_secs(120), run_hedging()).await?
+    tokio::time::timeout(
+        4 * POSITION_PHASE_TIMEOUT + HEDGING_SETUP_BUDGET,
+        run_hedging(),
+    )
+    .await?
 }
 
 async fn wait_for_position(
@@ -65,13 +106,7 @@ async fn wait_for_position(
             }
         }
     });
-    wait_for_balance(
-        balances,
-        label,
-        expected,
-        std::time::Duration::from_secs(25),
-    )
-    .await
+    wait_for_balance(balances, label, expected, POSITION_PHASE_TIMEOUT).await
 }
 
 async fn wait_for_balance(
@@ -115,7 +150,7 @@ async fn wait_for_balance(
 async fn position_wait_reports_phase_and_last_balance_and_tolerates_lag() {
     use futures::{stream, StreamExt};
     use tokio::sync::broadcast::error::RecvError;
-    let timeout = std::time::Duration::from_millis(20);
+    let timeout = std::time::Duration::from_millis(200);
     wait_for_balance(
         stream::iter([Err(RecvError::Lagged(10)), Ok(dec!(-500))]),
         "re-hedge",
@@ -153,6 +188,7 @@ async fn position_wait_reports_phase_and_last_balance_and_tolerates_lag() {
 }
 
 async fn run_hedging() -> anyhow::Result<()> {
+    let services = ServiceConnections::start().await?;
     let exchange = support::Exchange::start().await;
     let okex = exchange.client().await?;
     let db_fixture = DatabaseTestFixture::new().await?;
@@ -165,12 +201,20 @@ async fn run_hedging() -> anyhow::Result<()> {
         health,
         HedgingAppConfig::default(),
         OkexConfig {
-            client: exchange.config(),
             poll_frequency: std::time::Duration::from_secs(1),
             ..Default::default()
         },
-        galoy_client_config(),
-        bria_client_config(),
+        GaloyClientConfig {
+            api: format!("{}/graphql", services.url),
+            api_key: "test-key".into(),
+        },
+        BriaClientConfig {
+            url: services.url.clone(),
+            profile_api_key: "test-key".into(),
+            wallet_name: "test-wallet".into(),
+            payout_queue_name: "test-queue".into(),
+            onchain_address_external_id: "test-address".into(),
+        },
         ticks,
         ledger.clone(),
         okex.clone(),
@@ -224,6 +268,11 @@ async fn run_hedging() -> anyhow::Result<()> {
     assert_eq!(
         okex.get_position_in_signed_usd_cents().await?.usd_cents,
         dec!(0)
+    );
+    assert_eq!(
+        services.calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "hedging scenario unexpectedly called Galoy or Bria"
     );
     Ok(())
 }

@@ -41,6 +41,9 @@ impl HedgingApp {
         .await
     }
 
+    /// Test injection seam: `okex_client` is the exchange connection.
+    /// `okex_config.client` is ignored; only polling, funding, and hedging settings apply.
+    #[doc(hidden)]
     #[allow(clippy::too_many_arguments)]
     pub async fn run_with_client(
         pool: sqlx::PgPool,

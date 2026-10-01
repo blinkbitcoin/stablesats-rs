@@ -98,8 +98,10 @@ async fn transfers_collateral_between_accounts_body() -> anyhow::Result<()> {
     );
 
     let id = ClientTransferId::new();
-    okex.transfer_funding_to_trading(id.clone(), dec!(0.02))
+    let transfer = okex
+        .transfer_funding_to_trading(id.clone(), dec!(0.02))
         .await?;
+    assert_eq!(okex.transfer_state(transfer).await?.state, "success");
     assert_eq!(okex.transfer_state_by_client_id(id).await?.state, "success");
     assert_eq!(
         okex.trading_account_balance().await?.total_amt_in_btc,

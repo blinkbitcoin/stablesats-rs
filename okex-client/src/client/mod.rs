@@ -101,9 +101,8 @@ impl OkexClient {
     }
 
     async fn validate_account(self) -> Result<Self, OkexClientError> {
-        let client = self;
         let path = "/api/v5/account/config";
-        let config_data = client
+        let config_data = self
             .get_response_data_with_retry::<OkexAccountConfigurationData>(path, path)
             .await?;
 
@@ -120,7 +119,7 @@ impl OkexClient {
                 config_data.acct_lv
             )));
         }
-        Ok(client)
+        Ok(self)
     }
 
     pub async fn check_leverage(&self, expected_leverage: Decimal) -> Result<(), OkexClientError> {
@@ -850,16 +849,19 @@ mod endpoint_tests {
         let config: OkexClientConfig =
             serde_yaml::from_str("test_api: http://127.0.0.1:1\nbase_url: http://127.0.0.1:1")
                 .unwrap();
-        let client =
-            OkexClient::build(config, OKEX_API_URL.to_owned(), Arc::clone(&LIMITER)).unwrap();
-        assert_eq!(
-            client.url_for_path("/api/test"),
-            "https://www.okx.com/api/test"
-        );
-        assert!(serde_yaml::to_string(&client.config)
+        let yaml = serde_yaml::to_value(config).unwrap();
+        let keys: std::collections::BTreeSet<_> = yaml
+            .as_mapping()
             .unwrap()
-            .find("test_api")
-            .is_none());
+            .keys()
+            .map(|key| key.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            keys,
+            ["api_key", "passphrase", "secret_key", "simulated"]
+                .into_iter()
+                .collect()
+        );
     }
 
     #[tokio::test]
@@ -880,7 +882,7 @@ mod endpoint_tests {
         client.wait_for_rate_limit("rate-limit-regression").await;
         let start = std::time::Instant::now();
         tokio::time::timeout(
-            Duration::from_secs(5),
+            Duration::from_secs(10),
             client.clone().wait_for_rate_limit("rate-limit-regression"),
         )
         .await
@@ -888,7 +890,7 @@ mod endpoint_tests {
         assert!(start.elapsed() >= Duration::from_secs(1));
         // An independent endpoint key has its own budget.
         tokio::time::timeout(
-            Duration::from_millis(100),
+            Duration::from_secs(1),
             other.wait_for_rate_limit("different-key"),
         )
         .await

@@ -1,4 +1,4 @@
-use axum::http::StatusCode;
+use okex_client::test_support::StatusCode;
 use okex_client::{test_support::Exchange, *};
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
@@ -88,6 +88,7 @@ async fn timestamp_expiry_retries_once_for_each_response_helper() -> anyhow::Res
         matches!(client.funding_account_balance().await, Err(OkexClientError::UnexpectedResponse { code, .. }) if code == "50102")
     );
     assert_eq!(exchange.request_bodies("GET", FUNDING).await.len(), 4);
+    exchange.assert_all_replies_consumed().await;
     Ok(())
 }
 
@@ -134,6 +135,14 @@ async fn non_success_responses_preserve_exchange_errors_and_do_not_retry() -> an
             .await,
         Err(OkexClientError::ParameterClientIdNotFound)
     ));
+    assert!(matches!(
+        client
+            .transfer_state(TransferId {
+                value: "missing".into()
+            })
+            .await,
+        Err(OkexClientError::ParameterClientIdNotFound)
+    ));
     // Unmodelled endpoints produce a named fixture error through the real client.
     let result = client
         .withdraw_btc_onchain(
@@ -146,6 +155,7 @@ async fn non_success_responses_preserve_exchange_errors_and_do_not_retry() -> an
     assert!(
         matches!(result, Err(OkexClientError::UnexpectedResponse { msg, .. }) if msg.contains("Unmodelled endpoint: POST /api/v5/asset/withdrawal"))
     );
+    exchange.assert_all_replies_consumed().await;
     Ok(())
 }
 
@@ -175,6 +185,7 @@ async fn closes_flat_positions_and_propagates_other_errors() -> anyhow::Result<(
     assert!(
         matches!(client.close_positions(ClientOrderId::new()).await, Err(OkexClientError::UnexpectedResponse { msg, .. }) if msg == "actual failure")
     );
+    exchange.assert_all_replies_consumed().await;
     Ok(())
 }
 
@@ -260,6 +271,7 @@ async fn distinguishes_flat_and_malformed_position_data() -> anyhow::Result<()> 
             )),
         }
     }
+    exchange.assert_all_replies_consumed().await;
     Ok(())
 }
 
@@ -336,6 +348,7 @@ async fn funding_history_and_withdrawal_contracts() -> anyhow::Result<()> {
         assert_eq!(result.transaction_id, "withdrawal-tx");
         assert_eq!(result.client_id, id_string);
     }
+    exchange.assert_all_replies_consumed().await;
     Ok(())
 }
 
@@ -353,4 +366,15 @@ async fn constructor_rejects_misconfigured_accounts() {
             matches!(exchange.client().await, Err(OkexClientError::MisconfiguredAccount(msg)) if msg.contains(message))
         );
     }
+    exchange.assert_all_replies_consumed().await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "GET /mistyped?ccy=BTC (1 replies)")]
+async fn unused_scripted_reply_is_reported() {
+    let exchange = Exchange::start().await;
+    exchange
+        .reply_once("GET", "/mistyped?ccy=BTC", StatusCode::OK, json!({}))
+        .await;
+    exchange.assert_all_replies_consumed().await;
 }

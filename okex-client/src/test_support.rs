@@ -128,6 +128,23 @@ impl Exchange {
             .unwrap_or_default()
     }
 
+    /// Fail at the test boundary when a method/path typo left a scripted reply unused.
+    pub async fn assert_all_replies_consumed(&self) {
+        let account = self.account.lock().await;
+        let mut pending: Vec<_> = account
+            .replies
+            .iter()
+            .filter(|(_, replies)| !replies.is_empty())
+            .map(|(key, replies)| format!("{key} ({} replies)", replies.len()))
+            .collect();
+        pending.sort();
+        assert!(
+            pending.is_empty(),
+            "Unused fixture replies: {}",
+            pending.join(", ")
+        );
+    }
+
     pub fn url(&self) -> &str {
         &self.url
     }
@@ -297,13 +314,17 @@ async fn authenticate(
 
     let Query(query) = Query::<HashMap<String, String>>::try_from_uri(&parts.uri)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
-    let expected: &[(&str, &str)] = match parts.uri.path() {
-        "/api/v5/account/leverage-info" => &[("instId", "BTC-USD-SWAP"), ("mgnMode", "cross")],
-        "/api/v5/account/positions" | "/api/v5/market/ticker" => &[("instId", "BTC-USD-SWAP")],
-        "/api/v5/asset/balances" | "/api/v5/account/balance" | "/api/v5/asset/currencies" => {
-            &[("ccy", "BTC")]
+    let expected: Option<&[(&str, &str)]> = match parts.uri.path() {
+        "/api/v5/account/leverage-info" => {
+            Some(&[("instId", "BTC-USD-SWAP"), ("mgnMode", "cross")])
         }
-        "/api/v5/trade/order" if parts.method == axum::http::Method::GET => &[
+        "/api/v5/account/positions" | "/api/v5/market/ticker" => {
+            Some(&[("instId", "BTC-USD-SWAP")])
+        }
+        "/api/v5/asset/balances" | "/api/v5/account/balance" | "/api/v5/asset/currencies" => {
+            Some(&[("ccy", "BTC")])
+        }
+        "/api/v5/trade/order" if parts.method == axum::http::Method::GET => Some(&[
             ("instId", "BTC-USD-SWAP"),
             (
                 "clOrdId",
@@ -312,8 +333,28 @@ async fn authenticate(
                     .filter(|id| !id.is_empty())
                     .ok_or(StatusCode::BAD_REQUEST)?,
             ),
-        ],
-        "/api/v5/asset/transfer-state" | "/api/v5/asset/withdrawal-history" => &[
+        ]),
+        "/api/v5/asset/transfer-state" => {
+            let id_key = match (
+                query.contains_key("clientId"),
+                query.contains_key("transId"),
+            ) {
+                (true, false) => "clientId",
+                (false, true) => "transId",
+                _ => return Err(StatusCode::BAD_REQUEST.into()),
+            };
+            Some(&[
+                ("ccy", "BTC"),
+                (
+                    id_key,
+                    query
+                        .get(id_key)
+                        .filter(|id| !id.is_empty())
+                        .ok_or(StatusCode::BAD_REQUEST)?,
+                ),
+            ])
+        }
+        "/api/v5/asset/withdrawal-history" => Some(&[
             ("ccy", "BTC"),
             (
                 "clientId",
@@ -322,15 +363,23 @@ async fn authenticate(
                     .filter(|id| !id.is_empty())
                     .ok_or(StatusCode::BAD_REQUEST)?,
             ),
-        ],
-        _ => &[],
+        ]),
+        "/api/v5/account/config"
+        | "/api/v5/asset/transfer"
+        | "/api/v5/trade/order"
+        | "/api/v5/trade/close-position"
+        | "/api/v5/asset/deposit-history" => Some(&[]),
+        // Unknown routes may be stubbed; otherwise the fallback reports their full URI.
+        _ => None,
     };
-    if query.len() != expected.len()
-        || expected
-            .iter()
-            .any(|(key, value)| query.get(*key).map(String::as_str) != Some(*value))
-    {
-        return Err(StatusCode::BAD_REQUEST.into());
+    if let Some(expected) = expected {
+        if query.len() != expected.len()
+            || expected
+                .iter()
+                .any(|(key, value)| query.get(*key).map(String::as_str) != Some(*value))
+        {
+            return Err(StatusCode::BAD_REQUEST.into());
+        }
     }
     let key = format!("{} {}", parts.method, parts.uri);
     let mut account = account.lock().await;
@@ -339,11 +388,12 @@ async fn authenticate(
         .entry(key.clone())
         .or_default()
         .push(String::from_utf8_lossy(&body).into_owned());
-    if let Some((status, body)) = account.replies.get_mut(&key).and_then(VecDeque::pop_front) {
+    if let Some((status, reply_body)) = account.replies.get_mut(&key).and_then(VecDeque::pop_front)
+    {
         return Ok((
             status,
             [(axum::http::header::CONTENT_TYPE, "application/json")],
-            body,
+            reply_body,
         )
             .into_response());
     }
@@ -465,13 +515,15 @@ async fn transfer_state(
     Query(query): Query<HashMap<String, String>>,
 ) -> FixtureResult {
     let account = account.lock().await;
-    let data = account.transfers.get(&query["clientId"]).ok_or_else(|| {
-        FixtureError::new(
-            StatusCode::BAD_REQUEST,
-            "58129",
-            "Unknown client transfer ID",
-        )
-    })?;
+    let data = if let Some(id) = query.get("clientId") {
+        account.transfers.get(id)
+    } else {
+        account
+            .transfers
+            .values()
+            .find(|data| data["transId"].as_str() == query.get("transId").map(String::as_str))
+    }
+    .ok_or_else(|| FixtureError::new(StatusCode::BAD_REQUEST, "58129", "Unknown transfer ID"))?;
     Ok(response(json!([data])))
 }
 
@@ -589,6 +641,7 @@ async fn close(State(account): State<ExchangeState>, Json(body): Json<Value>) ->
     let mut account = account.lock().await;
     let size = account.contracts.abs();
     if size == 0 {
+        // OKX reports business error 51023 in an HTTP 200 response for a flat account.
         return Err(FixtureError::new(
             StatusCode::OK,
             "51023",
