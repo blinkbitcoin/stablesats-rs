@@ -4,10 +4,12 @@ version = "0.12.13-dev"
 edition = "2021"
 
 [features]
+test-support = ["dep:axum"]
 
 fail-on-warnings = []
 
 [dependencies]
+axum = { workspace = true, optional = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -26,5 +28,6 @@ tracing = { workspace = true }
 rustls = { workspace = true }
 
 [dev-dependencies]
+okex-client = { path = ".", features = ["test-support"] }
 anyhow = { workspace = true }
 serial_test = { workspace = true }

@@ -1,11 +1,7 @@
-#![allow(clippy::or_fun_call)]
-
 use galoy_client::GaloyClientConfig;
-use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serial_test::{file_serial, serial};
-
-use std::env;
 
 use bria_client::*;
 use ledger::*;
@@ -15,167 +11,220 @@ use shared::pubsub::*;
 use hedging::*;
 use shared::test_utils::DatabaseTestFixture;
 
-fn okex_config() -> OkexConfig {
-    let api_key = env::var("OKEX_API_KEY").expect("OKEX_API_KEY not set");
-    let passphrase = env::var("OKEX_PASSPHRASE").expect("OKEX_PASSPHRASE not set");
-    let secret_key = env::var("OKEX_SECRET_KEY").expect("OKEX_SECRET_KEY not set");
-    OkexConfig {
-        client: OkexClientConfig {
-            api_key,
-            passphrase,
-            secret_key,
-            simulated: true,
-        },
-        ..Default::default()
+use okex_client::test_support as support;
+
+// The hedging scenario does not call Galoy or Bria, but Bria connects over HTTP/2.
+// Keep that connection local and fail if the scenario starts depending on either API.
+struct ServiceConnections {
+    url: String,
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    server: tokio::task::JoinHandle<()>,
+}
+
+impl ServiceConnections {
+    async fn start() -> anyhow::Result<Self> {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let app = axum::Router::new().fallback(move |request: axum::extract::Request| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async move {
+                (
+                    axum::http::StatusCode::NOT_IMPLEMENTED,
+                    format!("Unexpected dependency request: {}", request.uri()),
+                )
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        Ok(Self { url, calls, server })
     }
 }
 
-fn galoy_client_config() -> GaloyClientConfig {
-    let api = env::var("GALOY_GRAPHQL_URI").expect("GALOY_GRAPHQL_URI not set");
-    let api_key = env::var("GALOY_API_KEY").expect("GALOY_API_KEY not set");
-
-    GaloyClientConfig { api, api_key }
-}
-
-fn bria_client_config() -> BriaClientConfig {
-    let url = env::var("BRIA_URL").unwrap_or("http://localhost:2742".to_string());
-    let profile_api_key = "bria_dev_000000000000000000000".to_string();
-    let wallet_name = "dev-wallet".to_string();
-    let payout_queue_name = "dev-queue".to_string();
-    let onchain_address_external_id = "stablesats_external_id".to_string();
-
-    BriaClientConfig {
-        url,
-        profile_api_key,
-        wallet_name,
-        onchain_address_external_id,
-        payout_queue_name,
+impl Drop for ServiceConnections {
+    fn drop(&mut self) {
+        self.server.abort();
     }
 }
+
+#[tokio::test]
+async fn service_connections_report_unexpected_requests() -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let services = ServiceConnections::start().await?;
+    let mut socket =
+        tokio::net::TcpStream::connect(services.url.trim_start_matches("http://")).await?;
+    socket
+        .write_all(b"GET /unexpected HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await?;
+    let mut response = String::new();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        socket.read_to_string(&mut response),
+    )
+    .await??;
+    assert!(response.starts_with("HTTP/1.1 501"));
+    assert!(response.contains("Unexpected dependency request: /unexpected"));
+    assert_eq!(services.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    Ok(())
+}
+
+const POSITION_PHASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+const HEDGING_SETUP_BUDGET: std::time::Duration = std::time::Duration::from_secs(80);
 
 #[tokio::test]
 #[serial]
 #[file_serial]
 async fn hedging() -> anyhow::Result<()> {
-    println!("🎯 Test started!");
-
-    println!("🔌 Setting up database test fixture...");
-    let db_fixture = DatabaseTestFixture::new().await?;
-    let pool = db_fixture.pool().clone();
-    println!("✅ Database test fixture ready!");
-
-    println!("📊 Initializing ledger...");
-
-    // Let's check if the database has the required tables first
-    println!("🔍 Checking database tables...");
-    let tables: Vec<(String,)> = sqlx::query_as(
-        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'",
+    tokio::time::timeout(
+        4 * POSITION_PHASE_TIMEOUT + HEDGING_SETUP_BUDGET,
+        run_hedging(),
     )
-    .fetch_all(&pool)
-    .await?;
-    println!(
-        "📋 Found {} tables: {:?}",
-        tables.len(),
-        tables.iter().map(|(name,)| name).collect::<Vec<_>>()
-    );
+    .await?
+}
 
-    // Try a simple database query first to test connectivity
-    println!("🧪 Testing database with simple query...");
-    let count_result: Result<(i64,), sqlx::Error> =
-        sqlx::query_as("SELECT COUNT(*) FROM sqlx_ledger_journals")
-            .fetch_one(&pool)
-            .await;
-
-    match count_result {
-        Ok((count,)) => println!("✅ Database query successful, found {} journals", count),
-        Err(e) => {
-            println!("❌ Database query failed: {}", e);
-            return Err(e.into());
+async fn wait_for_position(
+    events: &mut tokio::sync::broadcast::Receiver<LedgerEvent>,
+    label: &str,
+    expected: Decimal,
+) -> anyhow::Result<()> {
+    let balances = futures::stream::unfold(events, |events| async {
+        loop {
+            match events.recv().await {
+                Ok(event) => {
+                    if let LedgerEventData::BalanceUpdated(balance) = event.data {
+                        return Some((
+                            Ok(balance.settled_cr_balance - balance.settled_dr_balance),
+                            events,
+                        ));
+                    }
+                }
+                Err(error) => return Some((Err(error), events)),
+            }
         }
-    }
+    });
+    wait_for_balance(balances, label, expected, POSITION_PHASE_TIMEOUT).await
+}
 
-    // Try ledger init with shorter timeout and more logging
-    println!("⏱️ Starting ledger initialization with 30s timeout...");
-    let ledger_result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
-        println!("🔄 Calling ledger::Ledger::init...");
-        let result = ledger::Ledger::init(&pool).await;
-        println!("🏁 ledger::Ledger::init completed");
-        result
+async fn wait_for_balance(
+    balances: impl futures::Stream<Item = Result<Decimal, tokio::sync::broadcast::error::RecvError>>,
+    label: &str,
+    expected: Decimal,
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    use futures::StreamExt;
+    use tokio::sync::broadcast::error::RecvError;
+    futures::pin_mut!(balances);
+    let mut last = None;
+    let result = tokio::time::timeout(timeout, async {
+        while let Some(balance) = balances.next().await {
+            match balance {
+                Ok(balance) => {
+                    last = Some(balance);
+                    if balance == expected {
+                        return Ok(());
+                    }
+                }
+                Err(RecvError::Lagged(n)) => {
+                    eprintln!("{label}: skipped {n} lagged balance events")
+                }
+                Err(RecvError::Closed) => anyhow::bail!(
+                    "{label}: balance channel closed; expected {expected}, last {last:?}"
+                ),
+            }
+        }
+        anyhow::bail!("{label}: balance stream ended; expected {expected}, last {last:?}")
     })
     .await;
+    result.unwrap_or_else(|_| {
+        Err(anyhow::anyhow!(
+            "{label}: timed out; expected {expected}, last {last:?}"
+        ))
+    })
+}
 
-    let ledger = match ledger_result {
-        Ok(Ok(ledger)) => {
-            println!("✅ Ledger initialized successfully!");
-            ledger
-        }
-        Ok(Err(e)) => {
-            println!("❌ Ledger initialization failed: {}", e);
-            return Err(e.into());
-        }
-        Err(_) => {
-            println!("⏰ Ledger initialization timed out after 30 seconds!");
-            return Err(anyhow::anyhow!("Ledger initialization timeout"));
-        }
-    };
+#[tokio::test]
+async fn position_wait_reports_phase_and_last_balance_and_tolerates_lag() {
+    use futures::{stream, StreamExt};
+    use tokio::sync::broadcast::error::RecvError;
+    let timeout = std::time::Duration::from_millis(200);
+    wait_for_balance(
+        stream::iter([Err(RecvError::Lagged(10)), Ok(dec!(-500))]),
+        "re-hedge",
+        dec!(-500),
+        timeout,
+    )
+    .await
+    .unwrap();
+    let error = wait_for_balance(
+        stream::iter([Ok(dec!(0))]).chain(stream::pending()),
+        "initial hedge",
+        dec!(-500),
+        timeout,
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("initial hedge")
+            && error.contains("expected -500")
+            && error.contains("last Some(0)")
+            && error.contains("timed out"),
+        "{error}"
+    );
+    for results in [vec![Err(RecvError::Closed)], vec![]] {
+        let error = wait_for_balance(stream::iter(results), "close", dec!(0), timeout)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("close") && error.contains("expected 0") && error.contains("last None"),
+            "{error}"
+        );
+    }
+}
 
-    let (send, mut receive) = tokio::sync::mpsc::channel(1);
-    let (_, tick_recv) = memory::channel(chrono::Duration::from_std(
-        std::time::Duration::from_secs(1),
-    )?);
+async fn run_hedging() -> anyhow::Result<()> {
+    let services = ServiceConnections::start().await?;
+    let exchange = support::Exchange::start().await;
+    let okex = exchange.client().await?;
+    let db_fixture = DatabaseTestFixture::new().await?;
+    let pool = db_fixture.pool().clone();
+    let ledger = Ledger::init(&pool).await?;
+    let (_, health) = futures::channel::mpsc::unbounded();
+    let (_, ticks) = memory::channel(chrono::Duration::seconds(1));
+    let _app = HedgingApp::run_with_client(
+        pool.clone(),
+        health,
+        HedgingAppConfig::default(),
+        OkexConfig {
+            poll_frequency: std::time::Duration::from_secs(1),
+            ..Default::default()
+        },
+        GaloyClientConfig {
+            api: format!("{}/graphql", services.url),
+            api_key: "test-key".into(),
+        },
+        BriaClientConfig {
+            url: services.url.clone(),
+            profile_api_key: "test-key".into(),
+            wallet_name: "test-wallet".into(),
+            payout_queue_name: "test-queue".into(),
+            onchain_address_external_id: "test-address".into(),
+        },
+        ticks,
+        ledger.clone(),
+        okex.clone(),
+    )
+    .await?;
+    let mut events = ledger.usd_okex_position_balance_events().await?;
 
-    let ledger_clone = ledger.clone();
-    let pool_clone = pool.clone();
-    tokio::spawn(async move {
-        println!("🚀 Starting HedgingApp initialization...");
-        let (_, recv) = futures::channel::mpsc::unbounded();
-
-        println!("📋 Creating configs...");
-        let mut okex_cfg = okex_config();
-        okex_cfg.poll_frequency = std::time::Duration::from_secs(1); // Poll every 1 second for faster testing
-        println!("✅ OKX config created");
-
-        let galoy_cfg = galoy_client_config();
-        println!("✅ Galoy config created");
-
-        let bria_cfg = bria_client_config();
-        println!("✅ Bria config created");
-
-        println!("🔄 Starting HedgingApp::run...");
-        let result = HedgingApp::run(
-            pool_clone,
-            recv,
-            HedgingAppConfig {
-                ..Default::default()
-            },
-            okex_cfg,
-            galoy_cfg,
-            bria_cfg,
-            tick_recv.resubscribe(),
-            ledger_clone,
-        )
-        .await;
-
-        match &result {
-            Ok(_) => println!("✅ HedgingApp started successfully!"),
-            Err(e) => println!("❌ HedgingApp failed: {}", e),
-        }
-
-        let _ = send.try_send(result.expect("HedgingApp failed"));
-    });
-
-    println!("⏳ Waiting for HedgingApp to start...");
-    let _reason = receive.recv().await.expect("Didn't receive msg");
-    println!("✅ HedgingApp startup completed!");
-
-    println!("😴 Starting 2-second sleep...");
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    println!("⏰ 2-second sleep completed!");
-
-    println!("💰 Executing user_buys_usd transaction...");
     ledger
         .user_buys_usd(
-            pool.clone().begin().await?,
+            pool.begin().await?,
             LedgerTxId::new(),
             UserBuysUsdParams {
                 satoshi_amount: dec!(1000000),
@@ -188,166 +237,17 @@ async fn hedging() -> anyhow::Result<()> {
             },
         )
         .await?;
-    println!("✅ user_buys_usd transaction completed");
-
-    println!("📡 Subscribing to balance events...");
-    let mut event = ledger.usd_okex_position_balance_events().await?;
-    println!("✅ Subscribed to balance events");
-
-    let mut passed = false;
-    println!("⏳ Waiting for balance update events (up to 60 iterations)...");
-    for i in 0..=60 {
-        println!("🔄 Iteration {}/60: Waiting for balance event...", i + 1);
-        let user_buy_event = event.recv().await?;
-        println!("📨 Received event: {:?}", user_buy_event.data);
-        // checks if a position of $-500 gets opened on the exchange.
-        if let ledger::LedgerEventData::BalanceUpdated(data) = user_buy_event.data {
-            let balance_diff = data.settled_cr_balance - data.settled_dr_balance;
-            println!("💰 Balance difference: {} (looking for -500)", balance_diff);
-            if balance_diff == dec!(-500) {
-                println!("✅ Found target balance of -500!");
-                passed = true;
-                break;
-            }
-        } else {
-            println!("⏰ Non-balance event, sleeping...");
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-    }
-    if !passed {
-        panic!("Could not open a position on the exchange!");
-    }
-
-    let okex = OkexClient::new(okex_config().client).await?;
-
-    // Get current position before trying to close it
-    let current_position = okex.get_position_in_signed_usd_cents().await?;
-    println!("📊 Current position before closing: {:?}", current_position);
-
-    // Verify the position matches our expectation of -$500
-    println!("🎯 Expected position: -$500 (-50000 cents)");
-    println!(
-        "📊 Actual position: ${} ({} cents)",
-        current_position.usd_cents / dec!(100),
-        current_position.usd_cents
+    wait_for_position(&mut events, "initial hedge", dec!(-500)).await?;
+    assert_eq!(
+        okex.get_position_in_signed_usd_cents().await?.usd_cents,
+        dec!(-50000)
     );
 
-    if (current_position.usd_cents - dec!(-50000)).abs() > dec!(100) {
-        // Allow $1 tolerance
-        println!(
-            "⚠️ WARNING: Position mismatch! Expected -50000 cents, got {} cents",
-            current_position.usd_cents
-        );
-    }
-
-    // Try using the close_positions API first, which should be more reliable
-    println!("🔄 Attempting to close position using close_positions API...");
-    let close_order_id = ClientOrderId::new();
-    println!("📋 Using close order ID: {:?}", close_order_id);
-    match okex.close_positions(close_order_id).await {
-        Ok(_) => {
-            println!("✅ Close positions API call successful");
-            // Wait a moment for the order to be processed
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        }
-        Err(e) => {
-            println!(
-                "⚠️ Close positions API failed: {}, trying manual order placement",
-                e
-            );
-
-            // Fallback to manual order placement
-            // Calculate the contracts needed to close the position
-            // Each contract is worth approximately $100 USD
-            let contracts_to_close = if current_position.usd_cents < dec!(0) {
-                // We have a short position, need to buy to close
-                let contracts = (current_position.usd_cents.abs() / dec!(10000)).ceil(); // $100 per contract in cents
-                println!(
-                    "🔄 Placing BUY order for {} contracts to close short position",
-                    contracts
-                );
-                BtcUsdSwapContracts::from(contracts.to_u32().unwrap_or(5))
-            } else if current_position.usd_cents > dec!(0) {
-                // We have a long position, need to sell to close
-                let contracts = (current_position.usd_cents / dec!(10000)).ceil(); // $100 per contract in cents
-                println!(
-                    "🔄 Placing SELL order for {} contracts to close long position",
-                    contracts
-                );
-                BtcUsdSwapContracts::from(contracts.to_u32().unwrap_or(5))
-            } else {
-                println!("⚠️ Position is already zero, no need to close");
-                BtcUsdSwapContracts::from(0)
-            };
-
-            if u32::from(&contracts_to_close) > 0 {
-                let side = if current_position.usd_cents < dec!(0) {
-                    OkexOrderSide::Buy
-                } else {
-                    OkexOrderSide::Sell
-                };
-
-                okex.place_order(ClientOrderId::new(), side, &contracts_to_close)
-                    .await?;
-                println!("✅ Manual order placed successfully");
-            }
-        }
-    }
-
-    passed = false;
-    println!("⏳ Waiting for position to close (up to 60 seconds)...");
-    for i in 0..=60 {
-        let PositionSize { usd_cents, .. } = okex.get_position_in_signed_usd_cents().await?;
-        println!(
-            "🔍 Iteration {}/60: Current position: ${}",
-            i + 1,
-            usd_cents / dec!(100)
-        );
-
-        // Check if the position is close to zero (allowing for small rounding differences)
-        if usd_cents.abs() < dec!(50) {
-            // Less than $0.50
-            println!("✅ Position successfully closed (within $0.50 of zero)");
-            passed = true;
-            break;
-        } else {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-    }
-    if !passed {
-        panic!("Could not close the position via OkexClient!");
-    }
-
-    passed = false;
-    println!("⏳ Waiting for hedging system to re-open position after manual close...");
-    for i in 0..=120 {
-        // Increased timeout to 2 minutes
-        println!(
-            "🔄 Re-hedge iteration {}/60: Waiting for balance event...",
-            i + 1
-        );
-        let user_buy_event = event.recv().await?;
-        println!("📨 Re-hedge received event: {:?}", user_buy_event.data);
-        // checks if a position of $-500 gets opened on the exchange.
-        if let ledger::LedgerEventData::BalanceUpdated(data) = user_buy_event.data {
-            let balance_diff = data.settled_cr_balance - data.settled_dr_balance;
-            println!(
-                "💰 Re-hedge balance difference: {} (looking for -500)",
-                balance_diff
-            );
-            if balance_diff == dec!(-500) {
-                println!("✅ Found re-hedged target balance of -500!");
-                passed = true;
-                break;
-            }
-        } else {
-            println!("⏰ Re-hedge non-balance event, sleeping...");
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-    }
-    if !passed {
-        panic!("Could not open a position on the exchange after closing it via OkexClient!");
-    }
+    // Observe the close and re-hedge through ordered ledger events. Polling the
+    // exchange after a sleep can miss the zero position once hedging repairs it.
+    okex.close_positions(ClientOrderId::new()).await?;
+    wait_for_position(&mut events, "manual close", dec!(0)).await?;
+    wait_for_position(&mut events, "re-hedge", dec!(-500)).await?;
 
     ledger
         .user_sells_usd(
@@ -364,22 +264,15 @@ async fn hedging() -> anyhow::Result<()> {
             },
         )
         .await?;
-    passed = false;
-    for _ in 0..=60 {
-        let user_sell_event = event.recv().await?;
-        // checks if the position gets closed on the exchange.
-        if let ledger::LedgerEventData::BalanceUpdated(data) = user_sell_event.data {
-            if (data.settled_cr_balance - data.settled_dr_balance) == dec!(0) {
-                passed = true;
-                break;
-            }
-        } else {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-    }
-    if !passed {
-        panic!("Could not close the position on the exchange");
-    }
-
+    wait_for_position(&mut events, "liability removal", dec!(0)).await?;
+    assert_eq!(
+        okex.get_position_in_signed_usd_cents().await?.usd_cents,
+        dec!(0)
+    );
+    assert_eq!(
+        services.calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "hedging scenario unexpectedly called Galoy or Bria"
+    );
     Ok(())
 }

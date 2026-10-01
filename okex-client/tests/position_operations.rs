@@ -1,184 +1,128 @@
-use okex_client::*;
+use okex_client::{test_support::Exchange, *};
 use rust_decimal_macros::dec;
-use serial_test::serial;
 
-fn okex_client_config() -> OkexClientConfig {
-    OkexClientConfig {
-        api_key: std::env::var("OKEX_API_KEY").expect("OKEX_API_KEY must be set"),
-        secret_key: std::env::var("OKEX_SECRET_KEY").expect("OKEX_SECRET_KEY must be set"),
-        passphrase: std::env::var("OKEX_PASSPHRASE").expect("OKEX_PASSPHRASE must be set"),
-        simulated: true,
-    }
+#[tokio::test]
+async fn test_open_and_close_position() -> anyhow::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(120), async {
+        let exchange = Exchange::start().await;
+        let okex = exchange.client().await?;
+        assert_eq!(
+            okex.get_position_in_signed_usd_cents().await?.usd_cents,
+            dec!(0)
+        );
+        let open_id = ClientOrderId::new();
+        okex.place_order(
+            open_id.clone(),
+            OkexOrderSide::Sell,
+            &BtcUsdSwapContracts::from(1),
+        )
+        .await?;
+        let details = okex.order_details(open_id).await?;
+        assert!(details.complete);
+        assert_eq!(details.sz, dec!(1));
+        assert_eq!(
+            okex.get_position_in_signed_usd_cents().await?.usd_cents,
+            dec!(-10000)
+        );
+        let close_id = ClientOrderId::new();
+        okex.close_positions(close_id.clone()).await?;
+        let details = okex.order_details(close_id).await?;
+        assert!(details.complete);
+        assert_eq!(details.sz, dec!(1));
+        assert_eq!(
+            okex.get_position_in_signed_usd_cents().await?.usd_cents,
+            dec!(0)
+        );
+        // OKX reports 51023 when an already-flat position is closed.
+        okex.close_positions(ClientOrderId::new()).await?;
+        anyhow::Ok(())
+    })
+    .await?
 }
 
 #[tokio::test]
-#[serial]
-async fn test_open_and_close_position() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🎯 Testing OKX position open and close operations");
-
-    let okex_cfg = okex_client_config();
-    let okex = OkexClient::new(okex_cfg).await?;
-
-    // Step 1: Get initial position
-    let initial_position = okex.get_position_in_signed_usd_cents().await?;
-    println!("📊 Initial position: {:?}", initial_position);
-
-    // Step 2: Open a position by placing a SELL order (creates short position)
-    println!("🔄 Opening position with SELL order for 1 contract...");
-    let open_order_id = ClientOrderId::new();
-    okex.place_order(
-        open_order_id,
-        OkexOrderSide::Sell,
-        &BtcUsdSwapContracts::from(1),
-    )
-    .await?;
-    println!("✅ SELL order placed successfully");
-
-    // Step 3: Wait for position to be established
-    println!("⏳ Waiting for position to be established...");
-    let mut position_established = false;
-    for i in 1..=30 {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let current_position = okex.get_position_in_signed_usd_cents().await?;
-        println!(
-            "🔍 Check {}/30: Position = ${}",
-            i,
-            current_position.usd_cents / dec!(100)
+async fn test_manual_position_close() -> anyhow::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(120), async {
+        let exchange = Exchange::start().await;
+        let okex = exchange.client().await?;
+        okex.place_order(
+            ClientOrderId::new(),
+            OkexOrderSide::Sell,
+            &BtcUsdSwapContracts::from(2),
+        )
+        .await?;
+        assert_eq!(
+            okex.get_position_in_signed_usd_cents().await?.usd_cents,
+            dec!(-20000)
         );
-
-        // Check if we have a short position (negative value)
-        if current_position.usd_cents < dec!(-50) {
-            // Less than -$0.50
-            println!(
-                "✅ Position established: ${}",
-                current_position.usd_cents / dec!(100)
-            );
-            position_established = true;
-            break;
-        }
-    }
-
-    if !position_established {
-        return Err("Failed to establish position after placing SELL order".into());
-    }
-
-    // Step 4: Close the position using close_positions API
-    println!("🔄 Closing position using close_positions API...");
-    let close_order_id = ClientOrderId::new();
-    okex.close_positions(close_order_id).await?;
-    println!("✅ Close positions API call successful");
-
-    // Step 5: Wait for position to be closed
-    println!("⏳ Waiting for position to be closed...");
-    let mut position_closed = false;
-    for i in 1..=60 {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let current_position = okex.get_position_in_signed_usd_cents().await?;
-        println!(
-            "🔍 Check {}/60: Position = ${}",
-            i,
-            current_position.usd_cents / dec!(100)
+        okex.place_order(
+            ClientOrderId::new(),
+            OkexOrderSide::Buy,
+            &BtcUsdSwapContracts::from(2),
+        )
+        .await?;
+        assert_eq!(
+            okex.get_position_in_signed_usd_cents().await?.usd_cents,
+            dec!(0)
         );
-
-        // Check if position is close to zero
-        if current_position.usd_cents.abs() < dec!(50) {
-            // Less than $0.50 in absolute value
-            println!(
-                "✅ Position successfully closed: ${}",
-                current_position.usd_cents / dec!(100)
-            );
-            position_closed = true;
-            break;
-        }
-    }
-
-    if !position_closed {
-        return Err("Failed to close position using close_positions API".into());
-    }
-
-    println!("🎉 Test completed successfully - OKX position operations working correctly");
-    Ok(())
+        anyhow::Ok(())
+    })
+    .await?
 }
 
 #[tokio::test]
-#[serial]
-async fn test_manual_position_close() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🎯 Testing manual OKX position close with opposite order");
-
-    let okex_cfg = okex_client_config();
-    let okex = OkexClient::new(okex_cfg).await?;
-
-    // Step 1: Open a position by placing a SELL order
-    println!("🔄 Opening position with SELL order for 2 contracts...");
-    let open_order_id = ClientOrderId::new();
-    okex.place_order(
-        open_order_id,
-        OkexOrderSide::Sell,
-        &BtcUsdSwapContracts::from(2),
+async fn transfers_collateral_between_accounts() -> anyhow::Result<()> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        transfers_collateral_between_accounts_body(),
     )
-    .await?;
+    .await?
+}
 
-    // Step 2: Wait for position to be established
-    println!("⏳ Waiting for position to be established...");
-    let mut established_position = None;
-    for i in 1..=30 {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let current_position = okex.get_position_in_signed_usd_cents().await?;
-        println!(
-            "🔍 Check {}/30: Position = ${}",
-            i,
-            current_position.usd_cents / dec!(100)
-        );
-
-        if current_position.usd_cents < dec!(-100) {
-            // Less than -$1.00
-            established_position = Some(current_position);
-            break;
-        }
-    }
-
-    let position = established_position.ok_or("Failed to establish position")?;
-    println!(
-        "✅ Position established: ${}",
-        position.usd_cents / dec!(100)
+async fn transfers_collateral_between_accounts_body() -> anyhow::Result<()> {
+    let exchange = Exchange::start().await;
+    let okex = exchange.client().await?;
+    okex.check_leverage(dec!(4)).await?;
+    assert_eq!(
+        okex.get_last_price_in_usd_cents().await?.usd_cents,
+        dec!(5000000)
+    );
+    assert_eq!(okex.get_onchain_fees().await?.min_fee, dec!(0.0002));
+    assert_eq!(
+        okex.funding_account_balance().await?.total_amt_in_btc,
+        dec!(1)
+    );
+    assert_eq!(
+        okex.trading_account_balance().await?.total_amt_in_btc,
+        dec!(0.01)
     );
 
-    // Step 3: Close manually with opposite BUY order
-    println!("🔄 Closing position manually with BUY order for 2 contracts...");
-    let close_order_id = ClientOrderId::new();
-    okex.place_order(
-        close_order_id,
-        OkexOrderSide::Buy,
-        &BtcUsdSwapContracts::from(2),
-    )
-    .await?;
+    let id = ClientTransferId::new();
+    let transfer = okex
+        .transfer_funding_to_trading(id.clone(), dec!(0.02))
+        .await?;
+    assert_eq!(okex.transfer_state(transfer).await?.state, "success");
+    assert_eq!(okex.transfer_state_by_client_id(id).await?.state, "success");
+    assert_eq!(
+        okex.trading_account_balance().await?.total_amt_in_btc,
+        dec!(0.03)
+    );
+    assert_eq!(
+        okex.funding_account_balance().await?.total_amt_in_btc,
+        dec!(0.98)
+    );
 
-    // Step 4: Wait for position to be closed
-    println!("⏳ Waiting for position to be closed...");
-    let mut position_closed = false;
-    for i in 1..=60 {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let current_position = okex.get_position_in_signed_usd_cents().await?;
-        println!(
-            "🔍 Check {}/60: Position = ${}",
-            i,
-            current_position.usd_cents / dec!(100)
-        );
-
-        if current_position.usd_cents.abs() < dec!(50) {
-            println!(
-                "✅ Position successfully closed: ${}",
-                current_position.usd_cents / dec!(100)
-            );
-            position_closed = true;
-            break;
-        }
-    }
-
-    if !position_closed {
-        return Err("Failed to close position with manual BUY order".into());
-    }
-
-    println!("🎉 Manual position close test completed successfully");
+    let id = ClientTransferId::new();
+    okex.transfer_trading_to_funding(id.clone(), dec!(0.02))
+        .await?;
+    assert_eq!(okex.transfer_state_by_client_id(id).await?.state, "success");
+    assert_eq!(
+        okex.trading_account_balance().await?.total_amt_in_btc,
+        dec!(0.01)
+    );
+    assert_eq!(
+        okex.funding_account_balance().await?.total_amt_in_btc,
+        dec!(1)
+    );
     Ok(())
 }

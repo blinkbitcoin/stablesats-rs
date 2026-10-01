@@ -69,8 +69,24 @@ async fn health_check_error(
 }
 
 pub async fn run(checkers: HashMap<&'static str, HealthChecker>) -> anyhow::Result<()> {
+    run_at(SocketAddr::from(([0, 0, 0, 0], 8080)), checkers).await
+}
+
+async fn run_at(
+    addr: SocketAddr,
+    checkers: HashMap<&'static str, HealthChecker>,
+) -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .context("Bind health server")?;
+    axum::serve(listener, health_router(checkers))
+        .await
+        .context("Serve health server")
+}
+
+fn health_router(checkers: HashMap<&'static str, HealthChecker>) -> Router {
     let checkers = Arc::new(checkers);
-    let app = Router::new()
+    Router::new()
         .route(
             "/health/live",
             get({
@@ -105,11 +121,195 @@ pub async fn run(checkers: HashMap<&'static str, HealthChecker>) -> anyhow::Resu
                     }
                 }
             }),
-        );
+        )
+}
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::StreamExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tower::ServiceExt;
+
+    async fn request_status(app: Router, route: &str) -> StatusCode {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            app.oneshot(
+                axum::http::Request::builder()
+                    .uri(format!("/health/{route}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            ),
+        )
         .await
-        .context("Bind health server")
+        .unwrap()
+        .unwrap()
+        .status()
+    }
+
+    #[tokio::test]
+    async fn health_routes_handle_failures_recovery_and_sticky_readiness() {
+        let (checker, mut trigger) = futures::channel::mpsc::unbounded();
+        let mode = Arc::new(AtomicUsize::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let worker_mode = mode.clone();
+        let worker_calls = calls.clone();
+        let worker = tokio::spawn(async move {
+            let mut pending = Vec::new();
+            while let Some(response) = trigger.next().await {
+                let response: futures::channel::oneshot::Sender<Result<(), String>> = response;
+                worker_calls.fetch_add(1, Ordering::SeqCst);
+                match worker_mode.load(Ordering::SeqCst) {
+                    0 => {
+                        let _ = response.send(Err("unhealthy".into()));
+                    }
+                    1 => {
+                        let _ = response.send(Ok(()));
+                    }
+                    2 => drop(response),
+                    3 => pending.push(response), // Keep the sender alive to exercise timeout.
+                    _ => unreachable!(),
+                }
+            }
+        });
+        let app = health_router(HashMap::from([("test", checker)]));
+        for route in ["ready", "startup", "live", "live", "live", "live", "live"] {
+            assert_eq!(
+                request_status(app.clone(), route).await,
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+        }
+        mode.store(1, Ordering::SeqCst);
+        for route in ["live", "startup", "ready"] {
+            assert_eq!(request_status(app.clone(), route).await, StatusCode::OK);
+        }
+        for failure_mode in [0, 2, 3] {
+            mode.store(failure_mode, Ordering::SeqCst);
+            assert_eq!(
+                request_status(app.clone(), "live").await,
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+            let calls_before = calls.load(Ordering::SeqCst);
+            assert_eq!(request_status(app.clone(), "ready").await, StatusCode::OK);
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                calls_before,
+                "readiness must stay successful without rechecking"
+            );
+        }
+        worker.abort();
+        worker.await.unwrap_err();
+        assert_eq!(
+            request_status(app.clone(), "live").await,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(request_status(app, "ready").await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn fifth_consecutive_error_records_error_severity() {
+        use tracing::instrument::WithSubscriber;
+        use tracing_subscriber::{
+            layer::{Context, SubscriberExt},
+            Layer,
+        };
+        #[derive(Clone, Default)]
+        struct Levels(Arc<std::sync::Mutex<Vec<String>>>);
+        impl tracing::field::Visit for Levels {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if field.name() == "error.level" {
+                    self.0.lock().unwrap().push(format!("{value:?}"));
+                }
+            }
+        }
+        impl<S: tracing::Subscriber> Layer<S> for Levels {
+            fn on_record(
+                &self,
+                _: &tracing::span::Id,
+                values: &tracing::span::Record<'_>,
+                _: Context<'_, S>,
+            ) {
+                values.record(&mut self.clone());
+            }
+        }
+        let levels = Levels::default();
+        let subscriber = tracing_subscriber::registry().with(levels.clone());
+        async {
+            let errors = Arc::new(RwLock::new(0));
+            for _ in 0..5 {
+                health_check_error("test", errors.clone(), "failed").await;
+            }
+            assert_eq!(
+                health_check(Arc::new(HashMap::new()), errors.clone()).await,
+                StatusCode::OK
+            );
+            health_check_error("test", errors, "failed again").await;
+        }
+        .with_subscriber(subscriber)
+        .await;
+        assert_eq!(
+            *levels.0.lock().unwrap(),
+            ["WARN", "WARN", "WARN", "WARN", "ERROR", "WARN"]
+        );
+    }
+
+    #[tokio::test]
+    async fn successful_check_resets_consecutive_errors() {
+        let (checker, mut trigger) = futures::channel::mpsc::unbounded();
+        let worker = tokio::spawn(async move {
+            for outcome in [Err("failed".into()), Err("failed".into()), Ok(())] {
+                let response: futures::channel::oneshot::Sender<Result<(), String>> =
+                    trigger.next().await.unwrap();
+                response.send(outcome).unwrap();
+            }
+        });
+        let checkers = Arc::new(HashMap::from([("test", checker)]));
+        let errors = Arc::new(RwLock::new(0));
+        for expected in [1, 2] {
+            assert_eq!(
+                health_check(checkers.clone(), errors.clone()).await,
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+            assert_eq!(*errors.read().await, expected);
+        }
+        assert_eq!(health_check(checkers, errors.clone()).await, StatusCode::OK);
+        assert_eq!(*errors.read().await, 0);
+        worker.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn serves_health_routes_and_reports_bind_errors() -> anyhow::Result<()> {
+        let reserved = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let addr = reserved.local_addr()?;
+        let error = run_at(addr, HashMap::new()).await.unwrap_err();
+        assert_eq!(error.to_string(), "Bind health server");
+        drop(reserved);
+
+        let server = tokio::spawn(run_at(addr, HashMap::new()));
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            for route in ["live", "startup", "ready"] {
+                let mut stream = loop {
+                    match tokio::net::TcpStream::connect(addr).await {
+                        Ok(stream) => break stream,
+                        Err(_) => tokio::task::yield_now().await,
+                    }
+                };
+                stream
+                    .write_all(
+                        format!("GET /health/{route} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                            .as_bytes(),
+                    )
+                    .await?;
+                let mut response = String::new();
+                stream.read_to_string(&mut response).await?;
+                assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+            }
+            anyhow::Ok(())
+        })
+        .await;
+        server.abort();
+        result??;
+        Ok(())
+    }
 }

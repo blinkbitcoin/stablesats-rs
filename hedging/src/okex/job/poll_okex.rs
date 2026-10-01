@@ -102,3 +102,47 @@ pub async fn execute(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+    use serde_json::json;
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn reconciles_nonempty_funding_history(pool: sqlx::PgPool) -> anyhow::Result<()> {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let pool = &pool;
+            let ledger = ledger::Ledger::init(pool).await?;
+            let orders = OkexOrders::new(pool.clone()).await?;
+            let transfers = OkexTransfers::new(pool.clone()).await?;
+            let exchange = okex_client::test_support::Exchange::start().await;
+            let client = exchange.client().await?;
+            for action in ["deposit", "withdraw"] {
+                let shared = TransferReservationSharedData {
+                    correlation_id: uuid::Uuid::new_v4().into(), action_type: action.into(), action_unit: "BTC".into(),
+                    target_usd_exposure: dec!(0), current_usd_exposure: dec!(0), trading_btc_used_balance: dec!(0),
+                    trading_btc_total_balance: dec!(0), current_usd_btc_price: dec!(50000), funding_btc_total_balance: dec!(1),
+                };
+                let id = transfers.reserve_transfer_slot(TransferReservation {
+                    action_size: Some(dec!(0.01)), fee: dec!(0), transfer_from: "source".into(), transfer_to: "address".into(), shared: &shared,
+                }).await?.unwrap();
+                let id_string = String::from(id);
+                for (exchange_state, expected) in [("0", "pending"), ("2", "success")] {
+                    let (path, data) = if action == "deposit" {
+                        ("/api/v5/asset/deposit-history".to_string(), json!({"actualDepBlkConfirm":"1","amt":"0.01","ccy":"BTC","chain":"BTC-Bitcoin","depId":"1","from":"source","state":exchange_state,"to":"address","ts":"0","txId":"deposit-tx"}))
+                    } else {
+                        (format!("/api/v5/asset/withdrawal-history?ccy=BTC&clientId={id_string}"), json!({"ccy":"BTC","chain":"BTC-Bitcoin","amt":"0.01","ts":"0","from":"source","to":"address","txId":"withdrawal-tx","state":exchange_state,"wdId":"1","clientId":id_string}))
+                    };
+                    exchange.reply_once("GET", &path, okex_client::test_support::StatusCode::OK, json!({"code":"0","msg":"","data":[data]})).await;
+                    execute(pool, orders.clone(), transfers.clone(), client.clone(), OkexFundingConfig::default(), &ledger).await?;
+                    let row: (String, Option<String>) = sqlx::query_as("SELECT state, transfer_id FROM okex_transfers WHERE client_transfer_id = $1").bind(&id_string).fetch_one(pool).await?;
+                    assert_eq!(row.0, expected);
+                    assert_eq!(row.1.as_deref(), Some(if action == "deposit" { "deposit-tx" } else { "withdrawal-tx" }));
+                }
+            }
+            exchange.assert_all_replies_consumed().await;
+            anyhow::Ok(())
+        }).await?
+    }
+}

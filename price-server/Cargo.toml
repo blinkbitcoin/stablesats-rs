@@ -17,7 +17,6 @@ shared = { path = "../shared", package = "stablesats-shared" }
 chrono = { workspace = true }
 prost = { workspace = true }
 tonic = { workspace = true }
-axum-core = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 thiserror = { workspace = true }

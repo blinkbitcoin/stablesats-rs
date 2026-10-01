@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 MACOS_TARGET="x86_64-apple-darwin"
 
@@ -13,7 +14,7 @@ export LIBZ_SYS_STATIC=1
 export TARGET_CC=/workspace/osxcross/target/bin/x86_64h-apple-darwin23-cc
 export TARGET_AR=/workspace/osxcross/target/bin/x86_64h-apple-darwin23-ar
 
-SQLX_OFFLINE=true cargo build --release --target "${MACOS_TARGET}" --all-features
+bin/build-release.sh "${MACOS_TARGET}"
 
 echo
 echo Done

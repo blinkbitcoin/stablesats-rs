@@ -6,6 +6,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(".", "#[derive(serde::Serialize)]")
         .type_attribute(".", "#[serde(rename_all = \"camelCase\")]")
         .extern_path(".google.protobuf.Struct", "::prost_wkt_types::Struct")
-        .compile(&["../proto/bria/bria_service.proto"], &["../proto"])?;
+        .compile_protos(&["../proto/bria/bria_service.proto"], &["../proto"])?;
     Ok(())
 }

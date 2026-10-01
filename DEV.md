@@ -92,14 +92,61 @@ Example
 $ cargo test -p okex-price
 ```
 
+The position-operation and hedging tests use a separate local HTTP exchange
+fixture for each test. They exercise the real OKX client request and response
+handling without a funded demo account. The `okex-client` `test-support` feature
+exposes an explicit fixture-client constructor and reusable HTTP fixture.
+Application configuration has no endpoint override field. Release builds use default features; `check-release-features.sh`
+rejects a release dependency graph that enables test support. The same rate-limiter
+code runs for both clients: production shares a one-request-per-second budget per
+endpoint across clients, while each fixture client has a higher quota.
+
+External demo tests in `okex-client/tests/client.rs` are ignored in PR CI; local
+preflight regression tests in the same file run normally. The
+`OKX demo contract` workflow runs them sequentially each Monday, on main-branch
+pushes changing the client or demo workflow, and through manual `workflow_dispatch`.
+It uses the repository's demo-account `OKEX_*` secrets. A failed run opens an issue
+assigned to `openoms`, or comments on the existing open alert, with a link to the
+run. This explicitly notifies the owner through GitHub issue notifications; no
+credentials or account data are copied into the alert. The owner must keep Actions
+and issue notifications enabled and check/re-enable a schedule disabled by GitHub
+inactivity policy; push/manual triggers remain available.
+
+A separate `DEMO_ACCOUNT_PREFLIGHT` step checks authentication, account mode, funding
+balance (at least 0.00002 BTC), and available trading margin for one contract plus
+headroom and the transfer. Alerts distinguish preflight/setup failures from tests
+that fail after preflight passes. Balance checks are prerequisites, not proof that a
+later API failure is a contract change.
+The demo account must be configured for net mode, account level 2, and funded for
+its position and transfer tests. The deposit/withdrawal tests additionally require
+explicit address/amount environment variables and otherwise skip their bodies;
+the scheduled workflow does not supply those variables. PR integration tests do
+not receive OKX credentials. To run the demo checks locally:
+
+```sh
+cargo test --locked -p okex-client --test client -- --ignored --test-threads=1
+```
+
+Run the position and collateral tests without exchange credentials:
+```bash
+nix develop -c cargo test -p okex-client --test position_operations --locked
+```
+The hedging test only needs the migrated local database. Galoy and Bria connection
+fixtures run on ephemeral local ports and reject unexpected API calls. No Galoy or
+Bria environment variables or Tilt stack are required:
+```sh
+DATABASE_URL=postgres://user:password@localhost:5440/pg SQLX_OFFLINE=true cargo test -p hedging --test hedging
+```
+Its outer deadline is four 25-second phases plus an 80-second setup budget.
+
 ## Database Configuration
 
 The stablesats project uses different environment variables for database connections depending on the context:
 
 ### Migration vs Runtime vs Tests
-- **`DATABASE_URL`**: Used by SQLx for running database migrations (`cargo sqlx migrate run`)
+- **`DATABASE_URL`**: Required by the complete suite, including isolated `#[sqlx::test]` databases, and by migrations (`cargo sqlx migrate run`). `make test-local` and `make test-local-ci` pass the same explicit port-5440 URL to migrations and nextest; they do not rely on Nix shell inheritance.
 - **`PG_CON`**: Used by the main application runtime (passed via CLI)
-- **`PG_HOST`/`PG_PORT`**: Used by individual tests to construct connection strings
+- **`PG_HOST`/`PG_PORT`**: Fallback for older `DatabaseTestFixture` tests only; these do not configure `#[sqlx::test]`.
 
 ### Port Configuration
 - **CI/Docker environment**: Database runs on port 5432 (container internal)

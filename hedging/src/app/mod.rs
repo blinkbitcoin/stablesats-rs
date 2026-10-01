@@ -19,6 +19,35 @@ impl HedgingApp {
     pub async fn run(
         pool: sqlx::PgPool,
         health_check_trigger: HealthCheckTrigger,
+        config: HedgingAppConfig,
+        okex_config: OkexConfig,
+        galoy_client_cfg: GaloyClientConfig,
+        bria_client_cfg: BriaClientConfig,
+        price_receiver: memory::Subscriber<PriceStreamPayload>,
+        ledger: ledger::Ledger,
+    ) -> Result<Self, HedgingError> {
+        let client = okex_client::OkexClient::new(okex_config.client.clone()).await?;
+        Self::run_with_client(
+            pool,
+            health_check_trigger,
+            config,
+            okex_config,
+            galoy_client_cfg,
+            bria_client_cfg,
+            price_receiver,
+            ledger,
+            client,
+        )
+        .await
+    }
+
+    /// Test injection seam: `okex_client` is the exchange connection.
+    /// `okex_config.client` is ignored; only polling, funding, and hedging settings apply.
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_with_client(
+        pool: sqlx::PgPool,
+        health_check_trigger: HealthCheckTrigger,
         HedgingAppConfig {
             health: health_cfg, ..
         }: HedgingAppConfig,
@@ -27,6 +56,7 @@ impl HedgingApp {
         bria_client_cfg: BriaClientConfig,
         price_receiver: memory::Subscriber<PriceStreamPayload>,
         ledger: ledger::Ledger,
+        okex_client: okex_client::OkexClient,
     ) -> Result<Self, HedgingError> {
         let (mut jobs, mut channels) = (Vec::new(), Vec::new());
         OkexEngine::register_jobs(&mut jobs, &mut channels);
@@ -51,6 +81,7 @@ impl HedgingApp {
             okex_config,
             ledger.clone(),
             price_receiver.resubscribe(),
+            okex_client,
         )
         .await?;
 

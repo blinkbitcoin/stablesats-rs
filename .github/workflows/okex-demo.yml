@@ -1,0 +1,66 @@
+name: OKX demo contract
+
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'okex-client/**'
+      - '.github/workflows/okex-demo.yml'
+      - '.github/scripts/report-okex-demo-failure*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: okex-demo-account
+  cancel-in-progress: false
+
+jobs:
+  demo:
+    name: OKX demo contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      preflight: ${{ steps.preflight.outcome }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v4
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - name: Check demo-account prerequisites
+        id: preflight
+        env:
+          OKEX_API_KEY: ${{ secrets.OKEX_API_KEY }}
+          OKEX_PASSPHRASE: ${{ secrets.OKEX_PASSPHRASE }}
+          OKEX_SECRET_KEY: ${{ secrets.OKEX_SECRET_KEY }}
+        run: |
+          : "${OKEX_API_KEY:?DEMO_ACCOUNT_PREFLIGHT: missing demo API key}"
+          : "${OKEX_PASSPHRASE:?DEMO_ACCOUNT_PREFLIGHT: missing demo passphrase}"
+          : "${OKEX_SECRET_KEY:?DEMO_ACCOUNT_PREFLIGHT: missing demo secret key}"
+          nix develop -c cargo test --locked -p okex-client --test client demo_account_ready -- --ignored --exact
+      - name: Run ignored demo-account tests sequentially
+        env:
+          OKEX_API_KEY: ${{ secrets.OKEX_API_KEY }}
+          OKEX_PASSPHRASE: ${{ secrets.OKEX_PASSPHRASE }}
+          OKEX_SECRET_KEY: ${{ secrets.OKEX_SECRET_KEY }}
+        run: nix develop -c cargo test --locked -p okex-client --test client -- --ignored --test-threads=1 --skip demo_account_ready
+
+  alert:
+    needs: demo
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Alert the demo-check owner
+        uses: actions/github-script@v7
+        env:
+          PREFLIGHT: ${{ needs.demo.outputs.preflight }}
+        with:
+          script: |
+            const reportFailure = require('./.github/scripts/report-okex-demo-failure.cjs');
+            await reportFailure({ github, context, preflight: process.env.PREFLIGHT });
