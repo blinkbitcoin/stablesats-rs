@@ -1,10 +1,12 @@
 #@ load("@ytt:data", "data")
+#@ load("@ytt:yaml", "yaml")
 
 #@ load("vendor/pipeline-fragments.lib.yml",
 #@   "build_edge_image",
 #@   "public_docker_registry",
 #@   "nodejs_task_image_config",
 #@   "rust_check_code",
+#@   "nix_task_image_config",
 #@   "docker_host_pool",
 #@   "test_on_docker_host",
 #@   "repo_resource",
@@ -17,6 +19,16 @@
 #@   "charts_repo_resource",
 #@   "charts_repo_bot_branch",
 #@ )
+
+#@ def nix_check_code():
+#@ job = yaml.decode(yaml.encode(rust_check_code()))
+#! This pipeline has no Slack resource.
+#@ job.pop("on_failure")
+#@ config = job["plan"][1]["config"]
+#@ config["image_resource"] = nix_task_image_config()
+#@ config["run"] = {"path": "nix", "dir": "repo", "args": ["develop", "-c", "make", "check-code"]}
+#@ return job
+#@ end
 
 #@ def run_on_nix_host(name, cmd, additional_params={}):
 #@ params = dict(additional_params)
@@ -69,7 +81,7 @@ groups:
       - build-edge-image
 
 jobs:
-  -  #@ rust_check_code()
+  -  #@ nix_check_code()
   -  #@ build_edge_image()
   -  #@ run_on_nix_host("integration-tests", "./dev/bin/tilt-ci.sh", { "OKEX_API_KEY": data.values.okex_api_key, "OKEX_PASSPHRASE": data.values.okex_passphrase, "OKEX_SECRET_KEY": data.values.okex_secret_key, "GALOY_API_KEY": data.values.galoy_api_key })
   - name: release
