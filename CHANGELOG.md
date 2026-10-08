@@ -1,3 +1,11 @@
+# [stablesats release v0.12.13](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.13)
+
+
+### Bug Fixes
+
+- Repair dependency audit and exchange integration tests (#36)
+- Remove unsupported parameter from chart Git get (#34)
+
 # [stablesats release v0.12.12](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.12)
 
 
