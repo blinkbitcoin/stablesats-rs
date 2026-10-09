@@ -106,8 +106,13 @@ preflight regression tests in the same file run normally. The
 `OKX demo contract` workflow runs them sequentially each Monday, on main-branch
 pushes changing the client or demo workflow, and through manual `workflow_dispatch`.
 It uses the repository's demo-account `OKEX_*` secrets. A failed run opens an issue
-assigned to `openoms`, or comments on the existing open alert, with a link to the
-run. This explicitly notifies the owner through GitHub issue notifications; no
+assigned to the username in the repository variable `OKEX_DEMO_OWNER`, or comments
+on the existing open issue labeled `okex-demo-alert`, with a link to the run attempt.
+Set this variable to a repository collaborator before enabling the workflow; rotating
+it assigns subsequent alerts to the new owner. Empty/invalid owners, unassignable
+users, and assignments silently dropped by GitHub fail the alert job. The helper
+creates the label if needed; renaming an alert issue preserves deduplication. This
+explicitly notifies the owner through GitHub issue notifications; no
 credentials or account data are copied into the alert. The owner must keep Actions
 and issue notifications enabled and check/re-enable a schedule disabled by GitHub
 inactivity policy; push/manual triggers remain available.
@@ -115,8 +120,9 @@ inactivity policy; push/manual triggers remain available.
 A separate `DEMO_ACCOUNT_PREFLIGHT` step checks authentication, account mode, funding
 balance (at least 0.00002 BTC), and available trading margin for one contract plus
 headroom and the transfer. Alerts distinguish preflight/setup failures from tests
-that fail after preflight passes. Balance checks are prerequisites, not proof that a
-later API failure is a contract change.
+that fail after preflight passes by reading step conclusions from the completed job
+for the current run attempt through the Actions API. Failed-job outputs are not used.
+Balance checks are prerequisites, not proof that a later API failure is a contract change.
 The demo account must be configured for net mode, account level 2, and funded for
 its position and transfer tests. The deposit/withdrawal tests additionally require
 explicit address/amount environment variables and otherwise skip their bodies;
@@ -138,6 +144,25 @@ Bria environment variables or Tilt stack are required:
 DATABASE_URL=postgres://user:password@localhost:5440/pg SQLX_OFFLINE=true cargo test -p hedging --test hedging
 ```
 Its outer deadline is four 25-second phases plus an 80-second setup budget.
+
+### Demo alert smoke checks
+
+In the manual `OKX demo contract` workflow, select `alert_smoke_test=setup`,
+`preflight`, or `contract` to deliberately fail that phase without installing Nix,
+reading exchange credentials, contacting OKX, or creating/commenting on issues.
+The alert job reads the failed job through the Actions API, asserts the expected
+category and writes the result to the job summary. The overall run is intentionally
+red; the alert job must be green. `off` runs the real demo tests.
+
+Alert-script-only edits do not trigger demo trading. Run their Node regression tests
+through `nix develop -c make check-code` (Node is included in the development shell).
+The smoke check verifies failed-job classification, not actual issue notification delivery.
+
+Verified on 2026-10-01 at `0c559cca`: all three deliberate failures produced a
+successful alert job with the expected category, while real demo steps were skipped:
+[setup](https://github.com/blinkbitcoin/stablesats-rs/actions/runs/36897928157),
+[preflight](https://github.com/blinkbitcoin/stablesats-rs/actions/runs/36897840171), and
+[contract](https://github.com/blinkbitcoin/stablesats-rs/actions/runs/36897749214).
 
 ## Database Configuration
 
