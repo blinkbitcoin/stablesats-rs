@@ -82,3 +82,5 @@ graphql_client = { version = "0.16.0" }
 time = "0.3.47"
 rusty-money = "0.4.1"
 derive_builder = "0.20.0"
+
+# ci(deps): bump transitive crate versions [automated dependency check]
