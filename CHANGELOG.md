@@ -1,3 +1,10 @@
+# [stablesats release v0.12.14](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.14)
+
+
+### Miscellaneous Tasks
+
+- Bump rustls, rustls-webpki and webpki-roots (#41)
+
 # [stablesats release v0.12.13](https://github.com/blinkbitcoin/stablesats-rs/releases/tag/0.12.13)
 
 
