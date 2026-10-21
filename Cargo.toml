@@ -62,7 +62,7 @@ chrono = { version = "0.4.37", features = [
   "serde",
 ], default-features = false }
 ring = "0.17.14"
-rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 uuid = { version = "1.8.0", features = ["v4", "serde"] }
 data-encoding = "2.5.0"
 rust_decimal = "1.43.0"
