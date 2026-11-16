@@ -10,8 +10,9 @@ use ::user_trades::{user_trades::*, *};
 const LEDGER_POSTING_TIMEOUT: Duration = Duration::from_secs(120);
 const SEEDED_TX_ID_PREFIX: &str = "publishes-liability-";
 
-// Stops the app when the test body returns early, so it cannot touch the seeded rows
-// after they have been deleted.
+// Stops the job runner and poll loop when the test body returns, including early returns.
+// A poll job already in flight may still finish, but it only claims existing rows by id and
+// cannot recreate seeded rows after they are deleted.
 struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
 
 impl<T> Drop for AbortOnDrop<T> {
@@ -95,6 +96,8 @@ async fn seed_trades_and_wait_for_ledger(pool: &sqlx::PgPool) -> anyhow::Result<
     let buy_usd_tx_id = format!("{SEEDED_TX_ID_PREFIX}buy-usd-{run_id}");
     let sell_usd_tx_id = format!("{SEEDED_TX_ID_PREFIX}sell-usd-{run_id}");
     let now = chrono::Utc::now();
+    // Read the env before seeding so a missing variable cannot leave unposted rows behind.
+    let galoy_cfg = galoy_client_configuration();
     let mut tx = pool.begin().await?;
     UserTrades::new(pool.clone())
         .persist_all(
@@ -132,7 +135,7 @@ async fn seed_trades_and_wait_for_ledger(pool: &sqlx::PgPool) -> anyhow::Result<
         UserTradesConfig {
             galoy_poll_frequency: Duration::from_secs(1),
         },
-        galoy_client_configuration(),
+        galoy_cfg,
         ledger.clone(),
     )));
 
@@ -164,18 +167,24 @@ async fn seed_trades_and_wait_for_ledger(pool: &sqlx::PgPool) -> anyhow::Result<
     };
     drop(app);
 
-    assert_eq!(
-        ledger_tx_template_codes(&pool, buy_ledger_tx_id).await?,
-        vec!["USER_BUYS_USD".to_string()]
+    // ensure! instead of assert! keeps failures on the Result path so the cleanup still runs.
+    let buy_codes = ledger_tx_template_codes(&pool, buy_ledger_tx_id).await?;
+    anyhow::ensure!(
+        buy_codes == ["USER_BUYS_USD"],
+        "buy trade posted with templates {buy_codes:?}"
     );
-    assert_eq!(
-        ledger_tx_template_codes(&pool, sell_ledger_tx_id).await?,
-        vec!["USER_SELLS_USD".to_string()]
+    let sell_codes = ledger_tx_template_codes(&pool, sell_ledger_tx_id).await?;
+    anyhow::ensure!(
+        sell_codes == ["USER_SELLS_USD"],
+        "sell trade posted with templates {sell_codes:?}"
     );
 
     let after = ledger.balances().usd_liability_balances().await?;
-    assert_eq!(after.total_liability, before.total_liability);
-    assert_eq!(after.unallocated_usd, before.unallocated_usd);
+    anyhow::ensure!(
+        after.total_liability == before.total_liability
+            && after.unallocated_usd == before.unallocated_usd,
+        "net zero trades changed liabilities: before {before:?}, after {after:?}"
+    );
 
     Ok(())
 }
