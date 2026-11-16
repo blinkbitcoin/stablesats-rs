@@ -19,6 +19,7 @@ next-watch:
 	cargo watch -s 'cargo nextest run'
 
 check-code:
+	node --test .github/scripts/*.test.cjs
 	bin/test-release-features.sh
 	bin/check-release-features.sh x86_64-apple-darwin
 	bin/check-release-features.sh x86_64-unknown-linux-musl

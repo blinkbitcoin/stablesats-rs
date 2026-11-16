@@ -69,26 +69,104 @@ impl Account {
 
 type ExchangeState = Arc<Mutex<Account>>;
 
+#[derive(Clone, Copy)]
+enum QueryPolicy {
+    Exact(&'static [(&'static str, &'static str)]),
+    Order,
+    Transfer,
+    Withdrawal,
+}
+
+#[derive(Clone)]
+struct RequestValidation {
+    account: ExchangeState,
+    queries: HashMap<&'static str, QueryPolicy>,
+}
+
 impl Exchange {
     pub async fn start() -> Self {
         let account = Arc::new(Mutex::new(Account::default()));
-        let app = Router::new()
-            .route("/api/v5/account/config", get(account_config))
-            .route("/api/v5/account/leverage-info", get(leverage))
-            .route("/api/v5/account/positions", get(positions))
-            .route("/api/v5/market/ticker", get(ticker))
-            .route("/api/v5/asset/balances", get(funding_balance))
-            .route("/api/v5/account/balance", get(trading_balance))
-            .route("/api/v5/asset/currencies", get(fees))
-            .route("/api/v5/asset/transfer", post(transfer))
-            .route("/api/v5/asset/transfer-state", get(transfer_state))
-            .route("/api/v5/trade/order", post(order).get(order_details))
-            .route("/api/v5/trade/close-position", post(close))
-            .route("/api/v5/asset/deposit-history", get(empty_history))
-            .route("/api/v5/asset/withdrawal-history", get(empty_history))
+        // Register the handler and query policy together so a route cannot lose validation.
+        let routes = [
+            (
+                "/api/v5/account/config",
+                get(account_config),
+                QueryPolicy::Exact(&[]),
+            ),
+            (
+                "/api/v5/account/leverage-info",
+                get(leverage),
+                QueryPolicy::Exact(&[("instId", "BTC-USD-SWAP"), ("mgnMode", "cross")]),
+            ),
+            (
+                "/api/v5/account/positions",
+                get(positions),
+                QueryPolicy::Exact(&[("instId", "BTC-USD-SWAP")]),
+            ),
+            (
+                "/api/v5/market/ticker",
+                get(ticker),
+                QueryPolicy::Exact(&[("instId", "BTC-USD-SWAP")]),
+            ),
+            (
+                "/api/v5/asset/balances",
+                get(funding_balance),
+                QueryPolicy::Exact(&[("ccy", "BTC")]),
+            ),
+            (
+                "/api/v5/account/balance",
+                get(trading_balance),
+                QueryPolicy::Exact(&[("ccy", "BTC")]),
+            ),
+            (
+                "/api/v5/asset/currencies",
+                get(fees),
+                QueryPolicy::Exact(&[("ccy", "BTC")]),
+            ),
+            (
+                "/api/v5/asset/transfer",
+                post(transfer),
+                QueryPolicy::Exact(&[]),
+            ),
+            (
+                "/api/v5/asset/transfer-state",
+                get(transfer_state),
+                QueryPolicy::Transfer,
+            ),
+            (
+                "/api/v5/trade/order",
+                post(order).get(order_details),
+                QueryPolicy::Order,
+            ),
+            (
+                "/api/v5/trade/close-position",
+                post(close),
+                QueryPolicy::Exact(&[]),
+            ),
+            (
+                "/api/v5/asset/deposit-history",
+                get(empty_history),
+                QueryPolicy::Exact(&[]),
+            ),
+            (
+                "/api/v5/asset/withdrawal-history",
+                get(empty_history),
+                QueryPolicy::Withdrawal,
+            ),
+        ];
+        let mut app = Router::new();
+        let mut queries = HashMap::new();
+        for (path, handler, policy) in routes {
+            app = app.route(path, handler);
+            queries.insert(path, policy);
+        }
+        let app = app
             .fallback(unmodelled_endpoint)
             .layer(middleware::from_fn_with_state(
-                account.clone(),
+                RequestValidation {
+                    account: account.clone(),
+                    queries,
+                },
                 authenticate,
             ))
             .with_state(account.clone());
@@ -261,7 +339,7 @@ async fn empty_history() -> Json<Value> {
 }
 
 async fn authenticate(
-    State(account): State<ExchangeState>,
+    State(validation): State<RequestValidation>,
     request: Request,
     next: Next,
 ) -> Result<Response, FixtureError> {
@@ -314,17 +392,9 @@ async fn authenticate(
 
     let Query(query) = Query::<HashMap<String, String>>::try_from_uri(&parts.uri)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
-    let expected: Option<&[(&str, &str)]> = match parts.uri.path() {
-        "/api/v5/account/leverage-info" => {
-            Some(&[("instId", "BTC-USD-SWAP"), ("mgnMode", "cross")])
-        }
-        "/api/v5/account/positions" | "/api/v5/market/ticker" => {
-            Some(&[("instId", "BTC-USD-SWAP")])
-        }
-        "/api/v5/asset/balances" | "/api/v5/account/balance" | "/api/v5/asset/currencies" => {
-            Some(&[("ccy", "BTC")])
-        }
-        "/api/v5/trade/order" if parts.method == axum::http::Method::GET => Some(&[
+    let expected: Option<&[(&str, &str)]> = match validation.queries.get(parts.uri.path()) {
+        Some(QueryPolicy::Exact(expected)) => Some(expected),
+        Some(QueryPolicy::Order) if parts.method == axum::http::Method::GET => Some(&[
             ("instId", "BTC-USD-SWAP"),
             (
                 "clOrdId",
@@ -334,7 +404,7 @@ async fn authenticate(
                     .ok_or(StatusCode::BAD_REQUEST)?,
             ),
         ]),
-        "/api/v5/asset/transfer-state" => {
+        Some(QueryPolicy::Transfer) => {
             let id_key = match (
                 query.contains_key("clientId"),
                 query.contains_key("transId"),
@@ -354,7 +424,7 @@ async fn authenticate(
                 ),
             ])
         }
-        "/api/v5/asset/withdrawal-history" => Some(&[
+        Some(QueryPolicy::Withdrawal) => Some(&[
             ("ccy", "BTC"),
             (
                 "clientId",
@@ -364,13 +434,9 @@ async fn authenticate(
                     .ok_or(StatusCode::BAD_REQUEST)?,
             ),
         ]),
-        "/api/v5/account/config"
-        | "/api/v5/asset/transfer"
-        | "/api/v5/trade/order"
-        | "/api/v5/trade/close-position"
-        | "/api/v5/asset/deposit-history" => Some(&[]),
+        Some(QueryPolicy::Order) => Some(&[]),
         // Unknown routes may be stubbed; otherwise the fallback reports their full URI.
-        _ => None,
+        None => None,
     };
     if let Some(expected) = expected {
         if query.len() != expected.len()
@@ -382,7 +448,7 @@ async fn authenticate(
         }
     }
     let key = format!("{} {}", parts.method, parts.uri);
-    let mut account = account.lock().await;
+    let mut account = validation.account.lock().await;
     account
         .requests
         .entry(key.clone())
@@ -523,6 +589,8 @@ async fn transfer_state(
             .values()
             .find(|data| data["transId"].as_str() == query.get("transId").map(String::as_str))
     }
+    // 58129 is the client-ID error. Reusing it for an unknown transId is a fixture
+    // assumption, not a verified OKX contract; the demo only checks valid transIds.
     .ok_or_else(|| FixtureError::new(StatusCode::BAD_REQUEST, "58129", "Unknown transfer ID"))?;
     Ok(response(json!([data])))
 }

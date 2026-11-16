@@ -845,7 +845,7 @@ mod endpoint_tests {
     use super::*;
 
     #[test]
-    fn application_configuration_cannot_override_test_endpoint() {
+    fn client_configuration_exposes_no_endpoint_field() {
         let config: OkexClientConfig =
             serde_yaml::from_str("test_api: http://127.0.0.1:1\nbase_url: http://127.0.0.1:1")
                 .unwrap();
@@ -861,6 +861,20 @@ mod endpoint_tests {
             ["api_key", "passphrase", "secret_key", "simulated"]
                 .into_iter()
                 .collect()
+        );
+    }
+
+    #[test]
+    fn production_endpoint_is_okx() {
+        let client = OkexClient::build(
+            OkexClientConfig::default(),
+            OKEX_API_URL.to_owned(),
+            Arc::clone(&LIMITER),
+        )
+        .unwrap();
+        assert_eq!(
+            client.url_for_path("/api/v5/account/config"),
+            "https://www.okx.com/api/v5/account/config"
         );
     }
 

@@ -135,6 +135,7 @@ async fn non_success_responses_preserve_exchange_errors_and_do_not_retry() -> an
             .await,
         Err(OkexClientError::ParameterClientIdNotFound)
     ));
+    // The fixture assumes 58129 for missing transIds; this is not a verified exchange error.
     assert!(matches!(
         client
             .transfer_state(TransferId {

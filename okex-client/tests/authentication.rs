@@ -151,6 +151,10 @@ async fn rejects_incorrect_endpoint_queries_and_oversized_bodies() -> anyhow::Re
     let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     for path in [
         "/api/v5/account/config?extra=1",
+        "/api/v5/asset/deposit-history?extra=1",
+        "/api/v5/asset/withdrawal-history?ccy=BTC",
+        "/api/v5/asset/withdrawal-history?ccy=BTC&clientId=",
+        "/api/v5/asset/withdrawal-history?ccy=USD&clientId=test",
         "/api/v5/account/leverage-info?instId=BTC-USD-SWAP",
         "/api/v5/account/leverage-info?instId=BTC-USD-SWAP&mgnMode=isolated",
         "/api/v5/account/positions?instId=ETH-USD-SWAP",
@@ -172,6 +176,23 @@ async fn rejects_incorrect_endpoint_queries_and_oversized_bodies() -> anyhow::Re
             client
                 .get(format!("{url}{path}"))
                 .headers(signed_headers("GET", path, "", &timestamp))
+                .send()
+                .await?
+                .status(),
+            StatusCode::BAD_REQUEST,
+            "{path}"
+        );
+    }
+    for path in [
+        "/api/v5/asset/transfer?extra=1",
+        "/api/v5/trade/order?extra=1",
+        "/api/v5/trade/close-position?extra=1",
+    ] {
+        assert_eq!(
+            client
+                .post(format!("{url}{path}"))
+                .headers(signed_headers("POST", path, "{}", &timestamp))
+                .body("{}")
                 .send()
                 .await?
                 .status(),
