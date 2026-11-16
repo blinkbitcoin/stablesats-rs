@@ -1,2 +1,10 @@
 [advisories]
-ignore = ["RUSTSEC-2023-0071"]
+ignore = [
+  "RUSTSEC-2023-0071",
+  # libsqlite3-sys bundled SQLite WAL page-cache leak. sqlx-macros-core pulls sqlx-sqlite
+  # into Cargo.lock, but no sqlite feature is enabled and
+  # `cargo tree -i libsqlite3-sys --target all -e normal,build,dev` prints nothing, so the
+  # crate is never built. No sqlx release accepts the patched >=0.39 (sqlx-sqlite 0.9.0
+  # requires <0.38). Drop this entry once sqlx allows a patched libsqlite3-sys.
+  "RUSTSEC-2026-0459",
+]
