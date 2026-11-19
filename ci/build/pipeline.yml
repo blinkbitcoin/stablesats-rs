@@ -88,51 +88,72 @@ jobs:
 - name: integration-tests
   serial: true
   plan:
-  - put: docker-host
-    params:
-      acquire: true
   - in_parallel:
     - get: repo
       trigger: true
     - get: pipeline-tasks
+  - put: docker-host-site1
+    params:
+      acquire: true
   - task: integration-tests
-    attempts: 2
-    timeout: 12m
-    tags:
-    - galoy-staging
+    attempts: 1
+    timeout: 37m
+    input_mapping:
+      docker-host: docker-host-site1
     config:
-      caches:
-      - path: cargo-home
-      - path: cargo-target-dir
       platform: linux
       image_resource:
         type: registry-image
         source:
           username: ((docker-creds.username))
           password: ((docker-creds.password))
-          repository: us.gcr.io/galoy-org/rust-concourse
+          repository: us.gcr.io/galoy-org/nodejs-concourse
       inputs:
       - name: pipeline-tasks
       - name: docker-host
       - name: repo
         path: stablesats-rs-integration-tests
+      outputs:
+      - name: host-cleanup
       params:
         OKEX_API_KEY: ((okex-creds.api_key))
         OKEX_PASSPHRASE: ((okex-creds.passphrase))
         OKEX_SECRET_KEY: ((okex-creds.secret_key))
         GALOY_API_KEY: ((galoy-creds.galoy_api_key))
+        SSH_HOST_MODE: nix
+        CMD: ./dev/bin/tilt-ci.sh
+        PARAMS_KEYS: OKEX_API_KEY OKEX_PASSPHRASE OKEX_SECRET_KEY GALOY_API_KEY
         REPO_PATH: stablesats-rs-integration-tests
         GOOGLE_CREDENTIALS: ((staging-gcp-creds.creds_json))
         SSH_PRIVATE_KEY: ((staging-ssh.ssh_private_key))
-        SSH_PUB_KEY: ((staging-ssh.ssh_public_key))
-        CMD: ./dev/bin/tilt-ci.sh
-        PARAMS_KEYS: OKEX_API_KEY OKEX_PASSPHRASE OKEX_SECRET_KEY GALOY_API_KEY
+        WORKLOAD_TIMEOUT_MINUTES: "12"
       run:
-        path: pipeline-tasks/ci/tasks/run-on-nix-host.sh
+        path: pipeline-tasks/ci/vendor/tasks/ssh-host-run.sh
     ensure:
-      put: docker-host
-      params:
-        release: docker-host
+      do:
+      - task: check-host-cleanup
+        input_mapping:
+          docker-host: docker-host-site1
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              username: ((docker-creds.username))
+              password: ((docker-creds.password))
+              repository: us.gcr.io/galoy-org/nodejs-concourse
+          inputs:
+          - name: pipeline-tasks
+          - name: docker-host
+          - name: host-cleanup
+            optional: true
+          run:
+            path: bash
+            args:
+            - pipeline-tasks/ci/vendor/tasks/ssh-host-check-cleanup.sh
+      - put: docker-host-site1
+        params:
+          release: docker-host-site1
 - name: release
   serial: true
   plan:
@@ -487,12 +508,12 @@ resources:
     uri: git@github.com:blinkbitcoin/charts.git
     branch: bot-bump-stablesats-rs-image
     private_key: ((github-blinkbitcoin.private_key))
-- name: docker-host
+- name: docker-host-site1
   type: pool
   source:
     uri: git@github.com:blinkbitcoin/concourse-locks.git
     branch: main
-    pool: docker-hosts
+    pool: docker-hosts-site1
     private_key: ((github-blinkbitcoin.private_key))
 ---
 apiVersion: vendir.k14s.io/v1alpha1
@@ -505,8 +526,8 @@ directories:
   path: ../.github/workflows/vendor
 - contents:
   - git:
-      commitTitle: 'fix: check-code executable'
-      sha: cfd07211efb7ef9c986020d1d24069c820fd1717
+      commitTitle: 'feat(ci): add site SSH Docker-host transport to the Docker-host fragments (#53)'
+      sha: 8d57537df5b5886176f42063cbcc2b4bf475259c
     path: .
   path: ./vendor
 kind: LockConfig
@@ -531,7 +552,7 @@ directories:
   - path: .
     git:
       url: https://github.com/blinkbitcoin/concourse-shared.git
-      ref: 327c88016cbc6bf3c4e59df40ee0fd90c9b20d83
+      ref: 8d57537df5b5886176f42063cbcc2b4bf475259c
     includePaths:
     - shared/ci/**/*
     excludePaths:
@@ -550,3 +571,10 @@ directories:
     - shared/bin/**/nodejs-*
     - shared/bin/**/tofu-*
     newRootPath: shared/bin
+---
+version: 2
+updates:
+- package-ecosystem: cargo
+  directory: /
+  schedule:
+    interval: daily
